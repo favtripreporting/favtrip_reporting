@@ -3,6 +3,48 @@ import time
 import threading
 import streamlit as st
 
+
+import json
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+
+
+
+def app_base_url():
+    # Works on Streamlit Cloud; returns https://<your-app>.streamlit.app
+    try:
+        import streamlit as st
+        # newer Streamlit:
+        base = st.request.url_root.rstrip("/")
+    except Exception:
+        # fallback; you can hardcode if needed
+        base = ""
+    return base
+
+def start_web_oauth(scopes):
+    import streamlit as st
+    cfg = json.loads(st.secrets["GOOGLE_CREDENTIALS"])  # the full JSON pasted in Secrets
+    flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=app_base_url())
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    st.session_state["_oauth_state"] = state
+    st.session_state["_oauth_cfg"] = cfg
+    return auth_url
+
+def finish_web_oauth(code, state, scopes):
+    import streamlit as st
+    cfg = st.session_state.get("_oauth_cfg") or json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=app_base_url())
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+    with open("token.json", "w") as f:
+        f.write(creds.to_json())
+    return creds
+
+
 from favtrip.config import Config
 from favtrip.logger import StatusLogger
 from favtrip.pipeline import run_pipeline
@@ -39,6 +81,17 @@ st.markdown(
 st.title("🧾 FavTrip Reporting Pipeline")
 
 cfg = Config.load()
+
+params = st.query_params  # Streamlit >=1.31; for older use st.experimental_get_query_params()
+if "code" in params and "state" in params:
+    try:
+        finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
+        st.success("✅ Google authentication complete.")
+        st.query_params.clear()  # avoid reusing on refresh
+        st.rerun()
+    except Exception as e:
+        st.error(f"OAuth error: {e}")
+
 
 # ----------------------------
 # Session state: auth gating
@@ -84,70 +137,31 @@ with st.sidebar:
 # ----------------------------
 # Authentication panel (shown only if auth required)
 # ----------------------------
-if st.session_state.auth_required:
-    from favtrip.google_client import login_via_local_server  # import here to avoid circulars
 
+if st.session_state.auth_required:
     with st.expander("Google Authentication", expanded=True):
         st.caption(
             "Authentication is required before running. "
-            "Click **Start authentication** to open the browser. "
-            "We will wait for the redirect automatically."
+            "Click **Sign in with Google** to open the consent screen. "
+            "You will be redirected back here automatically."
         )
 
-        # Preferred: automatic (open browser + capture redirect)
-        if st.button("Start authentication (auto-open & capture)", type="primary"):
+        # New: web-redirect OAuth flow suitable for Streamlit Cloud
+        if st.button("Sign in with Google"):
             try:
-                with st.status("Waiting for Google authorization in your browser…", expanded=True):
-                    creds = login_via_local_server(cfg.SCOPES, cfg.REDIRECT_PORT)
-                    st.success("✅ Authentication complete. token.json saved.")
-                st.session_state.oauth_flow = None
-                st.session_state.oauth_url = None
-                st.session_state.auth_required = False
-                st.rerun()
+                auth_url = start_web_oauth(cfg.SCOPES)
+                st.link_button("Open Google Authorization", auth_url, use_container_width=True)
+                st.info("After allowing access, you'll be redirected back here automatically.")
             except Exception as e:
-                st.error(f"Auto authentication failed: {e}. You can try the manual method below.")
+                st.error(f"Failed to start OAuth: {e}")
 
-        st.divider()
-        st.write("**Manual method (fallback):**")
-
-        # Manual fallback (existing behavior)
-        col_a, col_b = st.columns([2, 1])
-        with col_a:
-            if st.button("Start authentication (get URL)"):
-                try:
-                    flow, url = start_oauth(cfg.SCOPES, cfg.REDIRECT_PORT)
-                    st.session_state.oauth_flow = flow
-                    st.session_state.oauth_url = url
-                    st.success("Auth URL generated below. Open it, grant access, and paste the redirect URL or code.")
-                except Exception as e:
-                    st.error(f"Failed to start OAuth: {e}")
-        with col_b:
-            if st.session_state.oauth_url:
-                st.link_button("Open Auth URL", st.session_state.oauth_url, use_container_width=True)
-
-        if st.session_state.oauth_url:
-            st.code(st.session_state.oauth_url, language="text")
-
-        pasted = st.text_input(
-            "Paste full redirect URL or the code here",
-            value="",
-            placeholder="https://... or the code",
-        )
-
-        if st.button("Complete authentication", type="secondary"):
-            flow = st.session_state.get("oauth_flow")
-            if not flow:
-                st.warning("Click 'Start authentication (get URL)' first.")
-            else:
-                try:
-                    creds = finish_oauth(flow, pasted)
-                    st.session_state.oauth_flow = None
-                    st.session_state.oauth_url = None
-                    st.session_state.auth_required = False
-                    st.success("✅ Authentication complete. token.json saved.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to finish OAuth: {e}")
+        # (Optional) Helpful hints / debug info
+        with st.expander("Having trouble?", expanded=False):
+            st.write(
+                "- Make sure the Google OAuth **Authorized redirect URI** in Cloud Console "
+                "matches your Streamlit app URL exactly (e.g., `https://your-app.streamlit.app`).\n"
+                "- If you change the app URL or rename the app, update the redirect URI in Google Cloud."
+            )
 
 # ----------------------------
 # Only show Run Options if NOT requiring auth
