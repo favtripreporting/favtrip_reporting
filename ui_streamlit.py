@@ -4,70 +4,105 @@ import threading
 import streamlit as st
 
 
-import json
+import base64, hashlib, secrets, json
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 
 
+# --- add near the top of ui_streamlit.py (after imports) ---
+import base64, hashlib, json, secrets
+import streamlit as st
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+
+def _b64url(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+def _pkce_pair() -> tuple[str, str]:
+    """
+    Generate a high-entropy PKCE code_verifier and its S256 code_challenge.
+    RFC 7636 requires 43–128 chars; this approach yields a URL-safe value.  [2](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow-with-pkce)
+    """
+    verifier = _b64url(secrets.token_bytes(64))        # ~86 chars, URL-safe, no padding
+    challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    return verifier, challenge
+
 def _redirect_base() -> str:
     """
-    Return a non-empty redirect URI base for OAuth. Prefer an explicit value
-    from secrets; fall back to request.url_root if available; ensure exactly
-    one trailing slash so it matches the URI registered in Google Cloud.
+    Always return a non-empty redirect base that exactly matches your OAuth client's
+    Authorized redirect URI. Prefer Secrets; normalize to one trailing slash.
     """
-    # 1) Prefer explicit setting from secrets (most reliable on Streamlit Cloud)
-    base = st.secrets.get("APP_BASE_URL", "").strip()
-    if base:
-        return base.rstrip("/") + "/"
-
-    # 2) Fallback: derive from the request (may be empty on first render)
-    try:
-        req = st.request.url_root  # available in recent Streamlit
-        if req:
-            return req.rstrip("/") + "/"
-    except Exception:
-        pass
-
-    # 3) Last resort: hardcode your app URL here (optional)
-    # return "https://favtripreporting-dev1.streamlit.app/"
-
-    # If we get here, we have no valid base; block with a friendly error.
-    st.error("OAuth redirect base URL is not set. Define APP_BASE_URL in Secrets.")
-    st.stop()
-
-
-def app_base_url():
-    # Works on Streamlit Cloud; returns https://<your-app>.streamlit.app
-    try:
-        import streamlit as st
-        # newer Streamlit:
-        base = st.request.url_root.rstrip("/")
-    except Exception:
-        # fallback; you can hardcode if needed
-        base = ""
-    return base
-
+    base = (st.secrets.get("APP_BASE_URL", "") or "").strip()
+    if not base:
+        # Fallback to request (often available), still normalized
+        try:
+            base = (st.request.url_root or "").strip()
+        except Exception:
+            base = ""
+    if not base:
+        st.error("OAuth redirect base is not set. Define APP_BASE_URL in Secrets.")
+        st.stop()
+    return base.rstrip("/") + "/"
 
 def start_web_oauth(scopes):
+    """
+    Build an authorization URL that:
+      - uses a stable redirect_uri (from Secrets)
+      - uses explicit PKCE (S256)
+      - embeds the code_verifier inside the state (base64url(JSON))
+    """
     cfg = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-    redirect = _redirect_base()  # always non-empty, normalized with trailing slash
+    redirect = _redirect_base()
+
+    # Explicit PKCE (stateless across redirect)
+    code_verifier, code_challenge = _pkce_pair()
+
+    # CSRF token + verifier encoded into state that Google will return unchanged.
+    state_obj = {
+        "csrf": _b64url(secrets.token_bytes(16)),
+        "v": code_verifier,
+        "r": redirect,
+    }
+    state_b64 = _b64url(json.dumps(state_obj).encode("utf-8"))
+
     flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=redirect)
-    auth_url, state = flow.authorization_url(
+    auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        state=state_b64,
+        # PKCE parameters:
+        code_challenge=code_challenge,
+        code_challenge_method="S256",
     )
-    st.session_state["_oauth_state"] = state
-    # Persist the client config *and* the redirect used so finish uses the exact same URI
-    st.session_state["_oauth_cfg"] = cfg
+
+    # Keep only minimal context; state carries the verifier.
     st.session_state["_oauth_redirect"] = redirect
     return auth_url
 
-def finish_web_oauth(code, state, scopes):
-    cfg = st.session_state.get("_oauth_cfg") or json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-    redirect = st.session_state.get("_oauth_redirect") or _redirect_base()
+def _parse_state(state_b64: str) -> dict:
+    # Add padding back for base64 decoding if needed
+    padding = "=" * ((4 - len(state_b64) % 4) % 4)
+    raw = base64.urlsafe_b64decode(state_b64 + padding)
+    return json.loads(raw.decode("utf-8"))
+
+def finish_web_oauth(code: str, state_b64: str, scopes):
+    """
+    Recreate a Flow with the same redirect_uri and exchange code + code_verifier for tokens.
+    """
+    cfg = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    state_obj = _parse_state(state_b64)
+    code_verifier = state_obj.get("v")
+    redirect = state_obj.get("r") or st.session_state.get("_oauth_redirect") or _redirect_base()
+
+    if not code_verifier:
+        st.error("OAuth state did not include a PKCE code_verifier.")
+        st.stop()
+
     flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=redirect)
-    flow.fetch_token(code=code)
+    # IMPORTANT: include code_verifier here to satisfy PKCE.  [1](https://github.com/googleapis/google-auth-library-python-oauthlib/issues/46)
+    flow.fetch_token(code=code, code_verifier=code_verifier)
+
     creds = flow.credentials
     with open("token.json", "w") as f:
         f.write(creds.to_json())
