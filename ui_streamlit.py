@@ -271,54 +271,81 @@ with st.sidebar:
 # Authentication panel (shown only if auth required)
 # ----------------------------
 
+# --- Authentication expander (shown only if auth required) ---
 if st.session_state.auth_required:
     with st.expander("Google Authentication", expanded=True):
         st.caption(
             "Authentication is required before running. "
-            "Click **Sign in with Google** to open the consent screen. "
-            "You will be redirected back here automatically."
+            "Click **Sign in with Google** to open the consent screen (it will open in a new tab)."
         )
 
-        # New: web-redirect OAuth flow suitable for Streamlit Cloud
-        if st.button("Sign in with Google", type="primary", use_container_width=True):
+        # Use a placeholder so we can remove the button immediately
+        sign_in_ph = st.empty()
+
+        # Render the button inside the placeholder
+        clicked = sign_in_ph.button("Sign in with Google", type="primary", use_container_width=True)
+
+        if clicked:
             try:
                 auth_url = start_web_oauth(cfg.SCOPES)
 
-                # 1) Immediately replace the current tab’s visible content with a simple message
+                # 1) Clear the placeholder to remove the button immediately
+                sign_in_ph.empty()
+
+                # 2) Show the message in the current tab
                 st.markdown(
                     """
                     <div style="
                         display:flex;align-items:center;justify-content:center;
-                        height:55vh;text-align:center; font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
-                    <div>
+                        height:55vh;text-align:center;
+                        font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+                      <div>
                         <h2 style="margin-bottom:0.5rem;">You're being signed in…</h2>
                         <p style="font-size:1.05rem;opacity:.9;">
-                        A new browser tab was opened for Google sign‑in.<br/>
-                        <strong>After it completes, you may close this tab.</strong>
+                          A new browser tab was opened for Google sign‑in.<br/>
+                          <strong>After it completes, you may close this tab.</strong>
                         </p>
-                    </div>
+                      </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-                # 2) Open the Google authorization URL in a NEW tab
-                #    We use JS so it happens immediately after the message appears.
+                # (Optional) If user returns to this tab later, refresh to show signed-in state
                 html(
-                    f"""
+                    """
                     <script>
-                    // Open in a new top-level tab/window
-                    window.open({json.dumps(auth_url)}, "_blank", "noopener");
+                      document.addEventListener("visibilitychange", function() {
+                        if (!document.hidden) { location.reload(); }
+                      });
                     </script>
                     """,
                     height=0,
                 )
 
-                # 3) Stop further rendering so the current tab stays on the message
+                # 3) Open Google auth in a NEW tab (leave this tab on the message)
+                html(
+                    f"""
+                    <script>
+                      window.open({json.dumps(auth_url)}, "_blank", "noopener");
+                    </script>
+                    """,
+                    height=0,
+                )
+
+                # 4) Stop further rendering so the message persists
                 st.stop()
 
             except Exception as e:
                 st.error(f"Failed to start OAuth: {e}")
+
+        with st.expander("Having trouble?", expanded=False):
+            st.write(
+                "- The Google authorization page opens in a **new browser tab**.\n"
+                "- After completing consent, **close this tab** and use the new tab.\n"
+                "- If you renamed your Streamlit app or URL, ensure the Google OAuth "
+                "Authorized redirect URI matches exactly (including trailing slash)."
+            )
 
 # ----------------------------
 # Only show Run Options if NOT requiring auth
