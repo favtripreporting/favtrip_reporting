@@ -154,66 +154,66 @@ st.title("🧾 FavTrip Reporting Pipeline")
 cfg = Config.load()
 
 #Old Config Diagonistics
-"""
-with st.expander("🔎 Config diagnostics", expanded=False):
-    try:
-        CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
-        st.write(f"CONFIG_FILE_ID (Secrets): `{CONFIG_FILE_ID or '(unset)'}`")
+def hide():
+    with st.expander("🔎 Config diagnostics", expanded=False):
+        try:
+            CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+            st.write(f"CONFIG_FILE_ID (Secrets): `{CONFIG_FILE_ID or '(unset)'}`")
 
-        token = load_valid_token(cfg.SCOPES)
-        if not token:
-            st.warning("No valid Google token yet. Drive overlay hasn't run.")
-        else:
-            _sheets, drive, _gmail = services(token, cfg.HTTP_TIMEOUT_SECONDS)
-            overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)
-            if overrides:
-                st.success(f"Loaded Drive overrides ({len(overrides)} keys).")
-                # show just the most relevant keys
-                show = {k: overrides.get(k) for k in [
-                    "CALC_SPREADSHEET_ID", "INCOMING_FOLDER_ID",
-                    "MANAGER_REPORT_FOLDER_ID", "ORDER_REPORT_FOLDER_ID",
-                    "TO_RECIPIENTS", "REPORT_KEY_RUN_LIST"
-                ]}
-                st.json(show)
+            token = load_valid_token(cfg.SCOPES)
+            if not token:
+                st.warning("No valid Google token yet. Drive overlay hasn't run.")
             else:
-                st.error("No Drive config found (or file empty).")
-                st.caption("If you just saved defaults to Drive, copy its file id into Secrets as CONFIG_FILE_ID and rerun.")
-    except Exception as e:
-        st.error(f"Diagnostics failed: {e}")
+                _sheets, drive, _gmail = services(token, cfg.HTTP_TIMEOUT_SECONDS)
+                overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)
+                if overrides:
+                    st.success(f"Loaded Drive overrides ({len(overrides)} keys).")
+                    # show just the most relevant keys
+                    show = {k: overrides.get(k) for k in [
+                        "CALC_SPREADSHEET_ID", "INCOMING_FOLDER_ID",
+                        "MANAGER_REPORT_FOLDER_ID", "ORDER_REPORT_FOLDER_ID",
+                        "TO_RECIPIENTS", "REPORT_KEY_RUN_LIST"
+                    ]}
+                    st.json(show)
+                else:
+                    st.error("No Drive config found (or file empty).")
+                    st.caption("If you just saved defaults to Drive, copy its file id into Secrets as CONFIG_FILE_ID and rerun.")
+        except Exception as e:
+            st.error(f"Diagnostics failed: {e}")
 
-st.caption("**Effective config (current page state):**")
-colA, colB = st.columns(2)
-with colA:
-    st.write("**IDs**")
-    st.code({
-        "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
-        "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
-        "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
-        "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
-    }, language="json")
-    st.write("**Recipients**")
-    st.code({
-        "TO_RECIPIENTS": cfg.TO_RECIPIENTS,
-        "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
-        "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
-    }, language="json")
-with colB:
-    st.write("**Flags & lists**")
-    st.code({
-        "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
-        "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
-        "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
-    }, language="json")
-    st.write("**GIDs / TZ**")
-    st.code({
-        "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
-        "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
-        "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
-        "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
-        "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
-        "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
-    }, language="json")
-"""
+    st.caption("**Effective config (current page state):**")
+    colA, colB = st.columns(2)
+    with colA:
+        st.write("**IDs**")
+        st.code({
+            "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
+            "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
+            "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
+            "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
+        }, language="json")
+        st.write("**Recipients**")
+        st.code({
+            "TO_RECIPIENTS": cfg.TO_RECIPIENTS,
+            "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
+            "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
+        }, language="json")
+    with colB:
+        st.write("**Flags & lists**")
+        st.code({
+            "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
+            "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
+            "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
+        }, language="json")
+        st.write("**GIDs / TZ**")
+        st.code({
+            "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
+            "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
+            "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
+            "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
+            "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
+            "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
+        }, language="json")
+    
 params = st.query_params  # Streamlit >=1.31; for older use st.experimental_get_query_params()
 if "code" in params and "state" in params:
     try:
