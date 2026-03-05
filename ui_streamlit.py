@@ -138,27 +138,6 @@ def _rerun():
 
 st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", layout="wide")
 
-_html_msg(
-    """
-    <script>
-      (function() {
-        // Avoid adding multiple listeners on reruns
-        if (window.__favtrip_oauth_listener_added) return;
-        window.__favtrip_oauth_listener_added = true;
-
-        window.addEventListener("message", function(ev) {
-          try {
-            if (ev && ev.data && ev.data.type === "favtrip_oauth_done") {
-              // Reload the page to pick up the new token and Drive-backed defaults
-              window.location.reload();
-            }
-          } catch (e) { /* no-op */ }
-        }, false);
-      })();
-    </script>
-    """,
-    height=0,
-)
 
 # --- Larger Run button ---
 st.markdown(
@@ -301,41 +280,45 @@ if st.session_state.auth_required:
         )
 
         # New: web-redirect OAuth flow suitable for Streamlit Cloud
-        if st.button("Sign in with Google"):
+        if st.button("Sign in with Google", type="primary", use_container_width=True):
             try:
                 auth_url = start_web_oauth(cfg.SCOPES)
 
-                # Open Google auth in a popup window (NOT a new tab via link_button).
-                # NOTE: do NOT use `noopener` if you plan to call window.opener in the popup.
-                from streamlit.components.v1 import html
+                # 1) Immediately replace the current tab’s visible content with a simple message
+                st.markdown(
+                    """
+                    <div style="
+                        display:flex;align-items:center;justify-content:center;
+                        height:55vh;text-align:center; font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+                    <div>
+                        <h2 style="margin-bottom:0.5rem;">You're being signed in…</h2>
+                        <p style="font-size:1.05rem;opacity:.9;">
+                        A new browser tab was opened for Google sign‑in.<br/>
+                        <strong>After it completes, you may close this tab.</strong>
+                        </p>
+                    </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # 2) Open the Google authorization URL in a NEW tab
+                #    We use JS so it happens immediately after the message appears.
                 html(
                     f"""
                     <script>
-                    (function() {{
-                        const url = {json.dumps(auth_url)};
-                        const w = window.open(
-                        url,
-                        "favtrip_oauth_popup",
-                        "width=500,height=700,menubar=no,toolbar=no,location=no,status=no"
-                        );
-                        if (w) {{ w.focus(); }}
-                    }})();
+                    // Open in a new top-level tab/window
+                    window.open({json.dumps(auth_url)}, "_blank", "noopener");
                     </script>
                     """,
                     height=0,
                 )
 
-                st.info("A sign‑in popup was opened. Complete consent there; this page will refresh automatically.")
+                # 3) Stop further rendering so the current tab stays on the message
+                st.stop()
+
             except Exception as e:
                 st.error(f"Failed to start OAuth: {e}")
-
-        # (Optional) Helpful hints / debug info
-        with st.expander("Having trouble?", expanded=False):
-            st.write(
-                "- Make sure the Google OAuth **Authorized redirect URI** in Cloud Console "
-                "matches your Streamlit app URL exactly (e.g., `https://your-app.streamlit.app`).\n"
-                "- If you change the app URL or rename the app, update the redirect URI in Google Cloud."
-            )
 
 # ----------------------------
 # Only show Run Options if NOT requiring auth
