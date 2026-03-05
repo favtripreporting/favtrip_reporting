@@ -452,12 +452,6 @@ if not st.session_state.auth_required:
     # ---- Run Form (Run button top-right) ----
     with st.form("run_form"):
         
-        st.markdown('<div class="ft-form-header">', unsafe_allow_html=True)
-        st.markdown('<div class="ft-form-header-left">', unsafe_allow_html=True)
-        
-
-        
-        
         header_left, header_right = st.columns([1, 0.32])
 
         with header_left:
