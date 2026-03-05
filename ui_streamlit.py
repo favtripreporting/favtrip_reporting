@@ -196,47 +196,53 @@ st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", la
 
 # --- Larger Run button ---
 # --- REPLACE existing CSS block with this compact style ---
+# --- ADD / MERGE: Big, right-aligned "Run Pipeline" button styles ---
 st.markdown(
     """
     <style>
-      /* Compact global spacing */
-      .block-container { padding-top: 1.2rem; padding-bottom: 1.2rem; }
-      section.main > div { padding-top: 0.25rem; padding-bottom: 0.25rem; }
-
-      /* Tighten form controls a bit */
-      .stTextInput>div>div>input,
-      .stTextArea>div>div>textarea,
-      .stNumberInput>div>div>input {
-          padding-top: 0.35rem;
-          padding-bottom: 0.35rem;
+      /* Ensure the submit container in our header aligns to the right */
+      .ft-runwrap {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
       }
 
-      /* Smaller subheader spacing */
-      h3, h4 { margin-bottom: 0.25rem; }
-
-      /* Card look for grouped sections */
-      .ft-card {
-          border: 1px solid var(--secondary-background-color);
-          border-radius: 8px;
-          padding: 0.75rem 0.85rem;
-          margin-bottom: 0.6rem;
-          background: rgba(0,0,0,0.02);
+      /* Style ONLY the form submit button (safe selector Streamlit uses for submit) */
+      div[data-testid="stFormSubmitButton"] button {
+        font-size: 1.15rem;      /* bigger text */
+        font-weight: 600;         /* bolder text */
+        padding: 0.85rem 1.35rem; /* bigger hit area */
+        border-radius: 10px;      /* pill-ish corners */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
       }
 
-      /* Right-align the submit button container */
-      .ft-form-header { display: flex; align-items: center; }
-      .ft-form-header-left { flex: 1 1 auto; }
-      .ft-form-header-right { flex: 0 0 auto; }
+      /* Optional: make the button more prominent with a stronger accent color */
+      div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+        background: var(--primary-color);
+        color: white;
+      }
 
-      /* Make help tooltips less dominant (optional) */
-      .stTooltipIcon { opacity: 0.65; }
+      /* On wider screens, keep the submit container tight to the right edge */
+      @media (min-width: 900px) {
+        div[data-testid="stFormSubmitButton"] {
+          width: 100%;
+          display: flex;
+          justify-content: flex-end;
+        }
+      }
 
-      /* Compact checkboxes/toggles line-height */
-      .stCheckbox, .stToggle { line-height: 1.1; }
+      /* Optional hover/active states */
+      div[data-testid="stFormSubmitButton"] button:hover {
+        filter: brightness(0.96);
+      }
+      div[data-testid="stFormSubmitButton"] button:active {
+        transform: translateY(0.5px);
+      }
     </style>
     """,
     unsafe_allow_html=True
 )
+# --- END ADD / MERGE ---
 
 st.title("🧾 FavTrip Reporting Pipeline")
 
@@ -453,21 +459,31 @@ if not st.session_state.auth_required:
         
         st.markdown('<div class="ft-form-header">', unsafe_allow_html=True)
         st.markdown('<div class="ft-form-header-left">', unsafe_allow_html=True)
-        st.subheader("Run Options")
-        st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        
 
-        st.markdown('<div class="ft-form-header-right">', unsafe_allow_html=True)
-        submitted = st.form_submit_button("▶️ Run Pipeline")
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        
+        hdr_left, hdr_right = st.columns([1, 0.36])
+
+        with hdr_left:
+            st.subheader("Run Options")
+            st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
+
+        with hdr_right:
+            # A small wrapper so the button is visually anchored to the right edge
+            st.markdown('<div class="ft-runwrap">', unsafe_allow_html=True)
+            submitted = st.form_submit_button(
+                "▶️ Run Pipeline",
+                help="Start the pipeline with the options configured in this form."
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
         # --- Main options ---
         # --- REPLACE your current recipients/keys/email-behavior sections with this ---
 
         # ===== Recipients (compact two columns) =====
         with st.container():
-            st.markdown("#### Recipients")
+            st.markdown("##### Recipients")
             with st.container():
                 col1, col2 = st.columns([1, 1])
                 with col1:
@@ -483,7 +499,7 @@ if not st.session_state.auth_required:
 
         # ===== Report Keys (toggle + input aligned) =====
         with st.container():
-            st.markdown("#### Report Keys")
+            st.markdown("##### Report Keys")
             with st.container():
                 colk1, colk2 = st.columns([0.45, 1.55])
                 with colk1:
@@ -502,7 +518,7 @@ if not st.session_state.auth_required:
 
         # ===== Email Behavior (two toggles in one row) =====
         with st.container():
-            st.markdown("#### Email Behavior")
+            st.markdown("##### Email Behavior")
             cole1, cole2 = st.columns([1, 1])
             with cole1:
                 include_full = st.toggle(
