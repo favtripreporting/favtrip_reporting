@@ -704,6 +704,7 @@ if not st.session_state.auth_required:
 
                         "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
                         "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
+                        "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT
                     }
 
                     # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
