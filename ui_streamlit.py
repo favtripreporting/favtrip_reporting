@@ -109,7 +109,7 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
     return creds
 
 
-
+from favtrip.config_store import save_config_to_drive
 from favtrip.config import Config
 from favtrip.logger import StatusLogger
 from favtrip.pipeline import run_pipeline
@@ -118,6 +118,7 @@ from favtrip.google_client import (
     finish_oauth,
     load_valid_token,
     clear_token,
+    services,
 )
 
 def _rerun():
@@ -297,7 +298,7 @@ if not st.session_state.auth_required:
                 tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
                 tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
 
-        save_env = st.checkbox("Update defaults in .env with the edited fields (optional)")
+        save_drive_defaults = st.checkbox("Update defaults", value=False)
 
     # ----------------------------
     # Submission handling
@@ -338,9 +339,65 @@ if not st.session_state.auth_required:
                 rk_map[key] = emails
         cfg.REPORT_KEY_RECIPIENTS = rk_map
 
-        if save_env:
-            cfg.save()
-            st.success("Saved updated defaults to .env")
+        # --- Save edited defaults to Drive JSON (optional) ---
+        if save_drive_defaults:
+            try:
+                # Ensure we have a user token first
+                creds = load_valid_token(cfg.SCOPES)
+                if not creds:
+                    st.error("Not authenticated. Please complete Google sign‑in first (top of page).")
+                else:
+                    # Drive service
+                    _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+
+                    # What we persist (the fields you asked to move out of Secrets)
+                    drive_defaults = {
+                        "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
+                        "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
+                        "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
+                        "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
+
+                        "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
+                        "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
+
+                        "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
+                        "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
+
+                        "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
+                        "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
+
+                        "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
+                        "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
+
+                        "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
+                        "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
+
+                        "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
+
+                        "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
+
+                        "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
+                        "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
+                    }
+
+                    # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
+                    # Otherwise we'll upsert a file named 'favtrip_config.json' and return its id.
+                    CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+                    new_id = save_config_to_drive(
+                        drive,
+                        drive_defaults,
+                        file_id=CONFIG_FILE_ID or None,   # update/pin if set, else upsert by name
+                        # parent_folder_id=None,          # optional: set a folder id to create under
+                    )
+
+                    st.success(f"Saved defaults to Drive config (file id: {new_id}).")
+                    if not CONFIG_FILE_ID:
+                        st.info(
+                            "Tip: add this ID to Streamlit Secrets as `CONFIG_FILE_ID` to pin the same file for all runs:\n"
+                            f"`{new_id}`"
+                        )
+            except Exception as e:
+                st.error(f"Failed to save defaults to Drive: {e}")
 
         # If user checked "Force Google re-auth for this run", kick them into auth gating first.
         if cfg.FORCE_REAUTH:
