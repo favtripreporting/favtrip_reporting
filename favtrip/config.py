@@ -220,15 +220,16 @@ class Config:
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
         """
-        Load config from Streamlit secrets (preferred on cloud) or from .env (local dev).
+        Load config from Streamlit secrets (preferred on cloud) or from .env (local dev),
+        then overlay any values found in a Drive-backed JSON config (optional).
         Secrets may be typed (bool/list/dict), so we coerce safely.
         """
         if env_path is None:
             env_path = Path.cwd() / ".env"
         load_dotenv(dotenv_path=env_path, override=False)
 
-        # Read raw values (could be str/bool/list/dict/None), then coerce
-        return Config(
+        # ---------- 1) Base config from Secrets / .env ----------
+        cfg = Config(
             CALC_SPREADSHEET_ID=str(_get_secret("CALC_SPREADSHEET_ID", "")),
             INCOMING_FOLDER_ID=str(_get_secret("INCOMING_FOLDER_ID", "")),
             MANAGER_REPORT_FOLDER_ID=str(_get_secret("MANAGER_REPORT_FOLDER_ID", "")),
@@ -266,6 +267,31 @@ class Config:
             REDIRECT_PORT=int(str(_get_secret("REDIRECT_PORT", "58285")) or "58285"),
             HTTP_TIMEOUT_SECONDS=int(str(_get_secret("HTTP_TIMEOUT_SECONDS", "300")) or "300"),
         )
+
+        # ---------- 2) Overlay from Drive JSON config (optional) ----------
+        # If present, read a JSON file on Drive and apply known keys over cfg.
+        try:
+            import streamlit as st
+            from favtrip.google_client import load_valid_token, services
+            from favtrip.config_store import load_config_from_drive
+
+            CONFIG_FILE_ID = ""
+            if hasattr(st, "secrets"):
+                CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+
+            creds = load_valid_token(cfg.SCOPES)
+            if creds:
+                _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+                overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)  # {} if not found
+                if isinstance(overrides, dict) and overrides:
+                    for k, v in overrides.items():
+                        if hasattr(cfg, k):
+                            setattr(cfg, k, v)
+        except Exception:
+            # Fail-open: if Drive/token not ready yet, just return base cfg
+            pass
+
+        return cfg
 
     # -----------------------------------------------------------------------------
     # .env serialization (still useful if you let users "Update defaults in .env")
