@@ -23,6 +23,61 @@ from streamlit.components.v1 import html
 from streamlit.components.v1 import html as _html_msg
 
 
+
+import re
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def _parse_emails(csv_str: str):
+    return [e.strip() for e in (csv_str or "").split(",") if e.strip()]
+
+def _invalid_emails(csv_str: str):
+    return [e for e in _parse_emails(csv_str) if not EMAIL_RE.match(e)]
+
+def _analyze_rk_rows(rows):
+    """
+    Validate the 'Per-Report-Key Recipients' editor rows.
+    Returns (issues: List[str], preview_lines: List[str], rk_map: Dict[str, List[str]])
+    """
+    issues, preview, rk_map = [], [], {}
+    seen, dupes = set(), set()
+
+    for idx, r in enumerate(rows or [], start=1):
+        raw_key = (r.get("REPORT KEY (ALL CAPS)") or "").strip()
+        emails_csv = r.get("Emails (comma)") or ""
+        if not raw_key and not emails_csv:
+            # allow a blank template row
+            continue
+
+        # uppercase flag
+        if raw_key != raw_key.upper():
+            issues.append(f"Row {idx}: key '{raw_key}' is not ALL CAPS.")
+
+        # duplicate detection
+        if raw_key:
+            if raw_key in seen:
+                dupes.add(raw_key)
+            else:
+                seen.add(raw_key)
+
+        # email validation
+        bads = _invalid_emails(emails_csv)
+        if bads:
+            issues.append(f"Row {idx}: invalid emails → {', '.join(bads)}")
+
+        # mapping + preview
+        if raw_key:
+            emails = _parse_emails(emails_csv)
+            if emails:
+                rk_map[raw_key] = emails
+            preview.append(f"{raw_key} → {', '.join(emails) if emails else emails_csv}")
+
+    if dupes:
+        issues.append(f"Duplicate keys detected: {', '.join(sorted(dupes))}")
+    return issues, preview, rk_map
+
+
+
 def _b64url(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
@@ -255,6 +310,11 @@ if "auth_checked" not in st.session_state:
     st.session_state.oauth_url = None
     st.session_state.auth_checked = True
 
+
+if "offer_log_download" not in st.session_state:
+    st.session_state.offer_log_download = False
+
+
 # Sidebar controls (always visible)
 with st.sidebar:
     st.header("Utilities")
@@ -265,6 +325,11 @@ with st.sidebar:
             if key in st.session_state:
                 del st.session_state[key]
         _rerun()
+        
+    st.checkbox(
+        "Offer full log download after completion",
+        key="offer_log_download",
+        help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
 
 
 # ----------------------------
@@ -362,17 +427,56 @@ if not st.session_state.auth_required:
             submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True)
 
         # --- Main options ---
-        colA, colB, colC = st.columns(3)
-        with colA:
-            to = st.text_input("To Recipients (comma)", value=",".join(cfg.TO_RECIPIENTS or []))
-            cc = st.text_input("CC Recipients (comma)", value=",".join(cfg.CC_RECIPIENTS or []))
-        with colB:
-            use_all = st.checkbox("Use all Report Keys in CSV", value=cfg.USE_ALL_REPORT_KEYS)
-            report_keys = st.text_input("Report Keys to run (comma)", value=",".join(cfg.REPORT_KEY_RUN_LIST or []))
-        with colC:
-            include_full = st.checkbox("Attach FULL order in each email", value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL)
-            send_full = st.checkbox("Send separate FULL order email", value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL)
-            #force_reauth = st.checkbox("Force Google re-auth for this run", value=cfg.FORCE_REAUTH)
+        # ===== Group: Recipients =====
+        st.subheader("Recipients")
+        st.caption("Configure who receives emails. Per‑key recipients can override or supplement defaults.")
+        colR1, colR2 = st.columns(2)
+        with colR1:
+            to = st.text_input(
+                "To Recipients (comma)",
+                value=",".join(cfg.TO_RECIPIENTS or []),
+                help="Fallback recipients for Manager & Order emails if per‑key or default order recipients are not set."
+            )
+        with colR2:
+            cc = st.text_input(
+                "CC Recipients (comma)",
+                value=",".join(cfg.CC_RECIPIENTS or []),
+                help="Optional CC added to all emails."
+            )
+
+        # ===== Group: Report Keys =====
+        st.subheader("Report Keys")
+        st.caption("Choose which keys to process from the CSV.")
+        colK1, colK2 = st.columns([1, 2])
+        with colK1:
+            use_all = st.checkbox(
+                "Use all Report Keys in CSV",
+                value=cfg.USE_ALL_REPORT_KEYS,
+                help="ON: process every key found in the CSV. OFF: only process the keys you list to the right."
+            )
+        with colK2:
+            report_keys = st.text_input(
+                "Report Keys to run (comma)",
+                value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
+                help="Used only when 'Use all Report Keys' is OFF. Example: COFFEE,GROCERY"
+            )
+
+        # ===== Group: Email Behavior =====
+        st.subheader("Email Behavior")
+        colE1, colE2 = st.columns(2)
+        with colE1:
+            include_full = st.checkbox(
+                "Attach FULL order in each email",
+                value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
+                help="Adds the FULL order PDF to every per‑key email."
+            )
+        with colE2:
+            send_full = st.checkbox(
+                "Send separate FULL order email",
+                value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
+                help="Sends an extra email with the FULL order PDF to DEFAULT_ORDER_RECIPIENTS or TO."
+            )
+        # --- END REPLACE ---
 
         # --- Per-report-key recipients editor (above Advanced) ---
         with st.expander("Per-Report-Key Recipients (optional)"):
@@ -390,31 +494,54 @@ if not st.session_state.auth_required:
                 key="rk_editor",
             )
 
+            # --- ADD: validation + preview for per-key recipients ---
+            rk_issues, rk_preview, rk_map_preview = _analyze_rk_rows(edited_rows)
+
+            if rk_preview:
+                with st.expander("Row template preview"):
+                    st.code("\n".join(rk_preview), language="text")
+
+            if rk_issues:
+                st.warning("Per‑report‑key recipient issues:\n\n- " + "\n- ".join(rk_issues))
+            # --- END ADD ---
+
+
         # --- Advanced (IDs, GIDs, Timezone, Redirect Port) ---
         with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)"):
-            col1, col2 = st.columns(2)
-            with col1:
+            # --- REPLACE the Advanced expander contents WITH grouped sections ---
+
+            st.markdown("#### Google Drive / Sheets IDs")
+            colA1, colA2 = st.columns(2)
+            with colA1:
                 calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
-                incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
+            with colA2:
+                incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
-                
+
+            st.markdown("#### GIDs & Named Ranges")
+            colA3, colA4 = st.columns(2)
+            with colA3:
+                gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
+                loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
+            with colA4:
+                gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
+                loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
+
+            st.markdown("#### Time & OAuth")
+            colA5, colA6 = st.columns(2)
+            with colA5:
+                tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
+                tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
+            with colA6:
                 raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                 redirect_port = st.number_input(
                     "Redirect Port (0 = auto)",
-                    min_value=0,             # allow 0 explicitly
+                    min_value=0,
                     max_value=65535,
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
-                    help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535.",
+                    help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
-
-            with col2:
-                gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
-                gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
-                loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
-                loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
-                tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
-                tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
 
@@ -448,14 +575,46 @@ if not st.session_state.auth_required:
         cfg.TIMESTAMP_FMT = tfmt
 
         # Per-key recipients from editor
+        
         rk_map = {}
         for r in edited_rows:
-            key = (r.get("REPORT KEY (ALL CAPS)") or "").strip().upper()
+            key = (r.get("REPORT KEY (ALL CAPS)") or "").strip()
             emails_csv = r.get("Emails (comma)") or ""
-            emails = _split_emails(emails_csv)
+            emails = _parse_emails(emails_csv)
             if key and emails:
                 rk_map[key] = emails
         cfg.REPORT_KEY_RECIPIENTS = rk_map
+
+        # --- ADD: warnings before kicking off the run ---
+        # 1) Warn if use_all is OFF and no explicit keys provided
+        requested_keys = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
+        if not use_all and not requested_keys:
+            st.warning(
+                "You left **Use all Report Keys** OFF but provided **no keys** to run. "
+                "No per‑key outputs will be generated unless you add keys.",
+                icon="⚠️"
+            )
+
+        # 2) Warn if no recipients anywhere (TO, DEFAULT_ORDER, or per‑key map)
+        any_to = bool(_parse_emails(to) or (cfg.TO_RECIPIENTS or []))
+        any_default = bool(cfg.DEFAULT_ORDER_RECIPIENTS or [])
+        any_per_key = bool(cfg.REPORT_KEY_RECIPIENTS)
+        if not (any_to or any_default or any_per_key):
+            st.warning(
+                "No recipients are defined: **TO**, **DEFAULT_ORDER_RECIPIENTS**, and **Per‑Report‑Key** are all empty. "
+                "Emails will not be sent.",
+                icon="⚠️"
+            )
+
+        # 3) Surface per-key table issues detected earlier
+        if rk_issues:
+            st.warning(
+                "Per‑report‑key recipient issues detected above. These may prevent emails from sending correctly:\n\n- "
+                + "\n- ".join(rk_issues),
+                icon="⚠️"
+            )
+        # --- END ADD ---
+
 
         # --- Save edited defaults to Drive JSON (optional) ---
         if save_drive_defaults:
@@ -585,5 +744,17 @@ if not st.session_state.auth_required:
                             st.success(f"Manager PDF: {result.manager_pdf_link}")
                         if getattr(result, "full_order_link", None):
                             st.success(f"Full Order Sheet: {result.full_order_link}")
+
+                            
+                        if st.session_state.offer_log_download and os.path.exists("last_run.log"):
+                            with open("last_run.log", "rb") as f:
+                                st.download_button(
+                                    "⬇️ Download full log (last_run.log)",
+                                    f,
+                                    file_name=f"last_run_{result.timestamp}.log",
+                                    mime="text/plain",
+                                    use_container_width=True
+                                )
+                            
 
                         status.update(label="✅ Completed", state="complete")
