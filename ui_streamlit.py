@@ -195,16 +195,47 @@ st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", la
 
 
 # --- Larger Run button ---
+# --- REPLACE existing CSS block with this compact style ---
 st.markdown(
     """
     <style>
-      div.stButton > button:first-child {
-        font-size: 1.1rem;
-        padding: 0.6rem 1.2rem;
+      /* Compact global spacing */
+      .block-container { padding-top: 1.2rem; padding-bottom: 1.2rem; }
+      section.main > div { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+
+      /* Tighten form controls a bit */
+      .stTextInput>div>div>input,
+      .stTextArea>div>div>textarea,
+      .stNumberInput>div>div>input {
+          padding-top: 0.35rem;
+          padding-bottom: 0.35rem;
       }
+
+      /* Smaller subheader spacing */
+      h3, h4 { margin-bottom: 0.25rem; }
+
+      /* Card look for grouped sections */
+      .ft-card {
+          border: 1px solid var(--secondary-background-color);
+          border-radius: 8px;
+          padding: 0.75rem 0.85rem;
+          margin-bottom: 0.6rem;
+          background: rgba(0,0,0,0.02);
+      }
+
+      /* Right-align the submit button container */
+      .ft-form-header { display: flex; align-items: center; }
+      .ft-form-header-left { flex: 1 1 auto; }
+      .ft-form-header-right { flex: 0 0 auto; }
+
+      /* Make help tooltips less dominant (optional) */
+      .stTooltipIcon { opacity: 0.65; }
+
+      /* Compact checkboxes/toggles line-height */
+      .stCheckbox, .stToggle { line-height: 1.1; }
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 st.title("🧾 FavTrip Reporting Pipeline")
@@ -419,68 +450,76 @@ if not st.session_state.auth_required:
 
     # ---- Run Form (Run button top-right) ----
     with st.form("run_form"):
-        tl, tr = st.columns([4, 1])
-        with tl:
-            st.subheader("Run Options")
-            st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
-        with tr:
-            submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True)
+        
+        st.markdown('<div class="ft-form-header">', unsafe_allow_html=True)
+        st.markdown('<div class="ft-form-header-left">', unsafe_allow_html=True)
+        st.subheader("Run Options")
+        st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="ft-form-header-right">', unsafe_allow_html=True)
+        submitted = st.form_submit_button("▶️ Run Pipeline")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # --- Main options ---
-        # ===== Group: Recipients =====
-        st.subheader("Recipients")
-        st.caption("Configure who receives emails. Per‑key recipients can override or supplement defaults.")
-        colR1, colR2 = st.columns(2)
-        with colR1:
-            to = st.text_input(
-                "To Recipients (comma)",
-                value=",".join(cfg.TO_RECIPIENTS or []),
-                help="Fallback recipients for Manager & Order emails if per‑key or default order recipients are not set."
-            )
-        with colR2:
-            cc = st.text_input(
-                "CC Recipients (comma)",
-                value=",".join(cfg.CC_RECIPIENTS or []),
-                help="Optional CC added to all emails."
-            )
+        # --- REPLACE your current recipients/keys/email-behavior sections with this ---
 
-        # ===== Group: Report Keys =====
-        st.subheader("Report Keys")
-        st.caption("Choose which keys to process from the CSV.")
-        colK1, colK2 = st.columns([1, 2])
-        with colK1:
-            use_all = st.checkbox(
-                "Use all Report Keys in CSV",
-                value=cfg.USE_ALL_REPORT_KEYS,
-                help="ON: process every key found in the CSV. OFF: only process the keys you list to the right."
-            )
-        with colK2:
-            report_keys = st.text_input(
-                "Report Keys to run (comma)",
-                value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
-                help="Used only when 'Use all Report Keys' is OFF. Example: COFFEE,GROCERY"
-            )
+        # ===== Recipients (compact two columns) =====
+        with st.container():
+            st.markdown("#### Recipients")
+            with st.container():
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    to = st.text_input(
+                        "To (comma)", value=",".join(cfg.TO_RECIPIENTS or []),
+                        help="Fallback recipients for Manager & Order emails."
+                    )
+                with col2:
+                    cc = st.text_input(
+                        "CC (comma)", value=",".join(cfg.CC_RECIPIENTS or []),
+                        help="Optional CC added to all emails."
+                    )
 
-        # ===== Group: Email Behavior =====
-        st.subheader("Email Behavior")
-        colE1, colE2 = st.columns(2)
-        with colE1:
-            include_full = st.checkbox(
-                "Attach FULL order in each email",
-                value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
-                help="Adds the FULL order PDF to every per‑key email."
-            )
-        with colE2:
-            send_full = st.checkbox(
-                "Send separate FULL order email",
-                value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
-                help="Sends an extra email with the FULL order PDF to DEFAULT_ORDER_RECIPIENTS or TO."
-            )
-        # --- END REPLACE ---
+        # ===== Report Keys (toggle + input aligned) =====
+        with st.container():
+            st.markdown("#### Report Keys")
+            with st.container():
+                colk1, colk2 = st.columns([0.45, 1.55])
+                with colk1:
+                    # Toggle reads better than checkbox for 'all vs selected'
+                    use_all = st.toggle(
+                        "Use all keys from CSV",
+                        value=cfg.USE_ALL_REPORT_KEYS,
+                        help="ON: process every key found. OFF: only the keys you list."
+                    )
+                with colk2:
+                    report_keys = st.text_input(
+                        "Keys to run (comma)",
+                        value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
+                        help="Used when 'Use all keys' is OFF. Example: COFFEE,GROCERY"
+                    )
 
-        # --- Per-report-key recipients editor (above Advanced) ---
-        with st.expander("Per-Report-Key Recipients (optional)"):
-            st.caption('Map **REPORT KEY (ALL CAPS)** → **Emails (comma)** (friendly editor for `REPORT_KEY_RECIPIENTS`).')
+        # ===== Email Behavior (two toggles in one row) =====
+        with st.container():
+            st.markdown("#### Email Behavior")
+            cole1, cole2 = st.columns([1, 1])
+            with cole1:
+                include_full = st.toggle(
+                    "Attach FULL order in each email",
+                    value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL
+                )
+            with cole2:
+                send_full = st.toggle(
+                    "Send separate FULL order email",
+                    value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL
+                )
+
+        # ===== Put optional editors/switches in cards for light framing =====
+        st.markdown('<div class="ft-card">', unsafe_allow_html=True)
+        with st.expander("Per‑Report‑Key Recipients (optional)", expanded=False):
+            st.caption("Map **REPORT KEY (ALL CAPS)** → **Emails (comma)**.")
+            # existing rows construction remains the same...
             rows = []
             if cfg.REPORT_KEY_RECIPIENTS:
                 for k, v in cfg.REPORT_KEY_RECIPIENTS.items():
@@ -494,54 +533,50 @@ if not st.session_state.auth_required:
                 key="rk_editor",
             )
 
-            # --- ADD: validation + preview for per-key recipients ---
+            # Preview + validation (from earlier step)
             rk_issues, rk_preview, rk_map_preview = _analyze_rk_rows(edited_rows)
-
             if rk_preview:
                 with st.expander("Row template preview"):
                     st.code("\n".join(rk_preview), language="text")
-
             if rk_issues:
                 st.warning("Per‑report‑key recipient issues:\n\n- " + "\n- ".join(rk_issues))
-            # --- END ADD ---
 
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- Advanced (IDs, GIDs, Timezone, Redirect Port) ---
-        with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)"):
-            # --- REPLACE the Advanced expander contents WITH grouped sections ---
-
-            st.markdown("#### Google Drive / Sheets IDs")
-            colA1, colA2 = st.columns(2)
-            with colA1:
+        st.markdown('<div class="ft-card">', unsafe_allow_html=True)
+        with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)", expanded=False):
+            st.markdown("##### Google Drive / Sheets IDs")
+            ga1, ga2 = st.columns([1, 1])
+            with ga1:
                 calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
                 mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
-            with colA2:
+            with ga2:
                 incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
 
-            st.markdown("#### GIDs & Named Ranges")
-            colA3, colA4 = st.columns(2)
-            with colA3:
+            st.markdown("##### GIDs & Named Ranges")
+            gb1, gb2 = st.columns([1, 1])
+            with gb1:
                 gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
                 loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
-            with colA4:
+            with gb2:
                 gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
                 loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
 
-            st.markdown("#### Time & OAuth")
-            colA5, colA6 = st.columns(2)
-            with colA5:
+            st.markdown("##### Time & OAuth")
+            gc1, gc2 = st.columns([1, 1])
+            with gc1:
                 tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
                 tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
-            with colA6:
+            with gc2:
                 raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                 redirect_port = st.number_input(
                     "Redirect Port (0 = auto)",
-                    min_value=0,
-                    max_value=65535,
+                    min_value=0, max_value=65535,
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                     help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
+        st.markdown('</div>', unsafe_allow_html=True)
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
 
