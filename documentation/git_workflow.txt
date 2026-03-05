@@ -1,0 +1,51 @@
+
+---
+1. Create a dev branch
+
+# Switch to dev branch
+    git checkout dev
+
+# Push dev branch to GitHub (the -u flag sets upstream tracking)
+    git push -u origin dev
+
+---
+2. Do all development on dev
+Make changes normally, then stage, commit, and push:
+
+    git add .
+    git commit -m "your message here"
+    git push
+
+All pushes go to dev (not main).
+
+---
+3. Push dev → main when ready (production release)
+Use a Pull Request on GitHub:
+1. Go to the repo on GitHub.
+2. You will see a banner offering “Compare & Pull Request” (dev → main).
+3. Open the Pull Request.
+4. Review and click “Merge Pull Request”.
+
+After merging, update your local main branch:
+
+    git checkout main
+    git pull
+
+---
+4. Keep dev updated with the latest main
+After merging into main, update dev:
+
+    git checkout dev
+    git pull origin main
+
+Or:
+
+    git merge main
+
+This prevents dev from drifting behind main.
+
+---
+5. Summary
+- main = production, always stable
+- dev = development, experimental work
+- Merge dev → main only after testing
