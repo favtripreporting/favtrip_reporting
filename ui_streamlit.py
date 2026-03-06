@@ -9,6 +9,7 @@ import re
 
 import streamlit as st
 from streamlit.components.v1 import html
+from streamlit.components.v1 import html as _html_listener
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -229,15 +230,33 @@ def handle_oauth_redirect_if_any(cfg):
 
     try:
         creds = finish_web_oauth(code=code, state_b64=state, scopes=cfg.SCOPES)
-        # Persist and clear redirect params
-        st.session_state.auth_required = False
-        # Clean up URL (remove code/state) to avoid re-processing on rerun
+
+        st.success("✅ Google sign‑in complete.")
+
+        # Clean URL
         if hasattr(st, "query_params"):
             st.query_params.clear()
         else:
             st.experimental_set_query_params()
+
+        # 🆕 Signal opener and close this tab
+        html("""
+        <script>
+        try {
+            // Notify opener (original tab) that OAuth finished
+            if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
+            }
+        } catch (e) {}
+        // Close this OAuth tab
+        window.close();
+        </script>
+        """, height=0)
+
+        # Fallback UI in case close() is blocked
         st.success("✅ Google sign‑in complete.")
         st.toast("Signed in to Google.")
+        st.caption("You can close this tab if it didn't close automatically.")
         st.rerun()
     except Exception as e:
         st.error(f"OAuth finish failed: {e}")
@@ -598,24 +617,25 @@ def render_run_form(cfg):
 
 def render_auth_panel(cfg):
     st.markdown("### Google Sign‑in")
-    st.caption("Sign in with your Google account to allow access to Drive, Sheets, and Gmail as needed.")
+    st.caption("Sign in with your Google account to gain access to the app.")
 
     if st.button("🔐 Sign in with Google", type="primary", use_container_width=True):
         try:
             auth_url = start_web_oauth(cfg.SCOPES)
 
-            # 🔁 Immediately redirect this tab (no link)
-            
+            # 🆕 Open Google OAuth in a NEW TAB (popup-style), like your old version.
             html(f"""
             <script>
-              window.top.location.href = "{auth_url}";
+              // Open in a new tab; 'noopener' avoids giving the new tab access to window.opener
+              window.open({json.dumps(auth_url)}, "_blank", "noopener");
             </script>
             """, height=0)
 
+            # Optional: friendly message in the current tab
+            st.info("A new browser tab was opened for Google sign‑in. After it completes, return to this tab.")
             st.stop()
         except Exception as e:
             st.error(f"Failed to start OAuth: {e}")
-            st.exception(e)  # optional: shows traceback for deeper debugging
 
     st.info("If you just completed sign‑in and returned here, the page will process your login automatically.")
 
@@ -626,12 +646,13 @@ def render_sidebar():
         if st.sidebar.button("Sign in"):
             try:
                 auth_url = start_web_oauth(Config.load().SCOPES)
-                from streamlit.components.v1 import html
+
                 html(f"""
                 <script>
-                  window.top.location.href = "{auth_url}";
+                  window.open({json.dumps(auth_url)}, "_blank", "noopener");
                 </script>
                 """, height=0)
+                st.sidebar.info("A new tab was opened for Google sign‑in.")
                 st.stop()
             except Exception as e:
                 st.sidebar.error(f"Failed to start OAuth: {e}")
@@ -660,6 +681,20 @@ st.set_page_config(
         "About": "FavTrip Reporting Pipeline",
     },
 )
+
+
+_html_listener("""
+<script>
+  // Listen for 'oauth done' message and reload the page to flip the gate
+  window.addEventListener("message", function(e) {
+    try {
+      if (e && e.data && e.data.type === "favtrip_oauth_done") {
+        window.location.reload();
+      }
+    } catch (_) {}
+  }, false);
+</script>
+""", height=0)
 
 st.title("🧾 FavTrip Reporting Pipeline")
 
