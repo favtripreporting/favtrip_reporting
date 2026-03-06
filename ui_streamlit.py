@@ -574,7 +574,7 @@ def render_run_form(cfg):
                             "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
 
                             "OUTPUT_TIME_TO_LIFE": cfg.OUTPUT_TIME_TO_LIFE,
-                            "FAILED_INPUT_TIME_TO_LIFE": cfg.FAILED_INPUT_TIME_TO_LIFE
+                            "FAILED_INPUT_TIME_TO_LIFE": cfg.FAILED_INPUT_TIME_TO_LIFE,
 
                             "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
                             "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
