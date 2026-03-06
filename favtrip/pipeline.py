@@ -39,6 +39,7 @@ def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
     headers = {"Authorization": f"Bearer {creds.token}"}
     r = requests.get(url, headers=headers)
     r.raise_for_status()
+    return r.content
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
@@ -161,53 +162,62 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4D: Create per-report-key outputs (CSV) and email
 
     # --- Parse the master CSV into rows of dicts ---
-    wb = load_workbook(filename=BytesIO(master_csv_bytes), read_only=True, data_only=True)
-    ws = wb.active  # or specify a sheet name if needed
-    rows_iter = ws.iter_rows(values_only=True)
 
-    # Header row
-    headers = next(rows_iter, None)
+    # master_csv_bytes = export_sheet(..., "csv")
+    text = master_csv_bytes.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+
+    rows_list = list(reader)
+    if not rows_list:
+        raise RuntimeError("CSV has no rows.")
+
+    headers = [h.strip() for h in rows_list[0]]
     if not headers:
         raise RuntimeError("CSV has no header.")
 
-    headers = [str(h).strip() if h is not None else "" for h in headers]
-    report_col = next((h for h in headers if h and h.lower() == "report_key"), None)
-    if not report_col:
+    # Find 'report_key' column, case-insensitive
+    lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+    if "report_key" not in lower_idx:
         raise RuntimeError("Report_Key column missing.")
+    report_idx = lower_idx["report_key"]
 
     # Materialize rows as list[dict]
     rows = []
-    for r in rows_iter:
-        rows.append({headers[i]: (r[i] if i < len(r) else None) for i in range(len(headers))})
+    for row in rows_list[1:]:
+        rows.append({headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))})
 
     # Group by report key
     groups: dict[str, list[dict]] = {}
     for r in rows:
-        key = (str(r.get(report_col) or "").strip()) or "UNASSIGNED"
-        groups.setdefault(key, []).append(r)
+        key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
+        groups.setdefault(key.upper(), []).append(r)
 
+
+    
     for key, key_rows in groups.items():
         if not cfg.USE_ALL_REPORT_KEYS and key.upper() not in (cfg.REPORT_KEY_RUN_LIST or []):
             continue
 
-        # Build a per-key CSV in memory
-        out_wb = Workbook(write_only=True)
-        out_ws = out_wb.create_sheet("Sheet1")
-        out_ws.append(headers)
+        # Build CSV text in memory
+        sio = io.StringIO()
+        w = csv.writer(sio, lineterminator="\n")
+        w.writerow(headers)
         for rr in key_rows:
-            out_ws.append([rr.get(h) for h in headers])
+            w.writerow([rr.get(h, "") for h in headers])
 
-        bio = BytesIO()
-        out_wb.save(bio)
-        key_csv_bytes = bio.getvalue()
+        key_csv_bytes = sio.getvalue().encode("utf-8")
+        tag = clean_tag(key)  # already upper
 
-        tag = clean_tag(key.upper())
         csv_name = f"Order_Report_{ts}_{location}_{tag}.csv"
 
-        # Upload CSV to Drive; set to_sheet=True so Drive converts to Google Sheet (needed for your PDF export + link)
-        created = upload_to_drive(drive_svc, key_csv_bytes, csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True) 
+        # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
+        created = upload_to_drive(
+            drive_svc, key_csv_bytes, csv_name,
+            CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True
+        )
         file_id = created["id"]
         gid = first_gid(sheets_svc, file_id)
+
 
         # Export the Google Sheet as PDF (unchanged behavior)
         pdf = export_sheet(creds, file_id, gid, "pdf")
