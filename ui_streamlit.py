@@ -522,67 +522,61 @@ if st.session_state.auth_required:
 # Only show Run Options if NOT requiring auth
 # ----------------------------
 if not st.session_state.auth_required:
-
-
-    # --- Determine upload & run states BEFORE rendering buttons ---
-
-    file_selected = incoming_file is not None
-    if file_selected and st.session_state.incoming_selected_name != incoming_file.name:
-        st.session_state.incoming_selected_name = incoming_file.name
-        st.session_state.incoming_uploaded_ok = False
-
-    if not file_selected:
-        upload_state = "none"  # grey
-        run_disabled = False
-        run_state = "blue"     # default blue
-    elif file_selected and not st.session_state.incoming_uploaded_ok:
-        upload_state = "need"  # red (needs upload)
-        run_disabled = True
-        run_state = "grey"     # force grey while not uploaded
-    else:
-        upload_state = "ok"    # green
-        run_disabled = False
-        run_state = "blue"
-
-
     # ---- Run Form (Run button top-right) ----
     with st.form("run_form"):
-        
+        # ---- Header text on left, reserve run-button space on right ----
         tl, gap, col_run = st.columns([4, 1, 1])
-
         with tl:
             st.subheader("Run Options")
             st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
 
-        with col_run:
-            # Wrap the button so CSS can target only this button
-            st.markdown(f'<div id="ft-run" class="ft-scope" data-state="{run_state}">', unsafe_allow_html=True)
-            submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True, disabled=run_disabled)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-
-        # ===== Upload row ABOVE Recipients =====
+        # ===== Upload row ABOVE state computation =====
         st.markdown('<div class="ft-upload-title">Upload Current Week Sales Report</div>', unsafe_allow_html=True)
-
         up_col, gap2, upbtn_col = st.columns([4, 1, 1])
-
         with up_col:
             st.markdown('<div class="ft-upload-row">', unsafe_allow_html=True)
+            # 1) Define incoming_file BEFORE you compute states
             incoming_file = st.file_uploader(
                 "Upload Current Week Sales Report",
                 type=["xlsx", "csv"],
                 key="incoming_upload",
-                help= "Please upload the 'Live Items' report from Modisoft as a XLSX or CSV file.",
+                help = "Please upload the current week's 'Live Items Report' from Modisoft as an XLSX or CSV file.",
                 label_visibility="collapsed",
                 accept_multiple_files=False,
             )
             st.markdown('</div>', unsafe_allow_html=True)
-       
+
+        # 2) Compute states NOW that incoming_file exists
+        file_selected = incoming_file is not None
+        if file_selected and st.session_state.incoming_selected_name != incoming_file.name:
+            st.session_state.incoming_selected_name = incoming_file.name
+            st.session_state.incoming_uploaded_ok = False
+
+        if not file_selected:
+            upload_state = "none"  # grey
+            run_disabled = False
+            run_state = "blue"     # default blue
+        elif file_selected and not st.session_state.incoming_uploaded_ok:
+            upload_state = "need"  # red
+            run_disabled = True
+            run_state = "grey"
+        else:
+            upload_state = "ok"    # green
+            run_disabled = False
+            run_state = "blue"
+
+        # 3) Render the RUN button (top-right) with a wrapper carrying the state
+        with col_run:
+            st.markdown(f'<div id="ft-run" class="ft-scope" data-state="{run_state}">', unsafe_allow_html=True)
+            submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True, disabled=run_disabled)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # 4) Render the UPLOAD button (right side of uploader row), also wrapped with state
         with upbtn_col:
-            # Right-align wrapper + state scope
             st.markdown(f'<div id="ft-upload" class="ft-scope ft-align-right" data-state="{upload_state}">', unsafe_allow_html=True)
             upload_clicked = st.form_submit_button("⬆️ Upload Now", use_container_width=True, disabled=(not file_selected))
             st.markdown('</div>', unsafe_allow_html=True)
+
 
         # --- Handle the upload action ---
         if upload_clicked:
