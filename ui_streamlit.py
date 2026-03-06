@@ -204,6 +204,29 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
     # IMPORTANT: include code_verifier here to satisfy PKCE.
     flow.fetch_token(code=code, code_verifier=code_verifier)
 
+    html("""
+    <script>
+    try {
+        // Notify any listening tabs in the same origin
+        const bc = new BroadcastChannel('favtrip_oauth');
+        bc.postMessage({ type: 'favtrip_oauth_done' });
+        bc.close();
+    } catch (_) {}
+
+    // Also try traditional opener messaging (works if noopener removed)
+    try {
+        const topWin = window.top || window;
+        if (topWin.opener && !topWin.opener.closed) {
+        topWin.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
+        }
+    } catch (_) {}
+
+    // Try to close; if blocked, user will see the success UI
+    try { window.close(); } catch (_) {}
+    </script>
+    """, height=0)
+
+
     creds = flow.credentials
     with open("token.json", "w") as f:
         f.write(creds.to_json())
@@ -685,7 +708,19 @@ st.set_page_config(
 
 _html_listener("""
 <script>
-  // Listen for 'oauth done' message and reload the page to flip the gate
+  // Reload the page when OAuth completes (channel-based)
+  try {
+    const bc = new BroadcastChannel('favtrip_oauth');
+    bc.onmessage = (e) => {
+      try {
+        if (e && e.data && e.data.type === 'favtrip_oauth_done') {
+          window.location.reload();
+        }
+      } catch (_) {}
+    };
+  } catch (_) {}
+
+  // Keep your fallback postMessage listener too (works if noopener is removed)
   window.addEventListener("message", function(e) {
     try {
       if (e && e.data && e.data.type === "favtrip_oauth_done") {
@@ -695,6 +730,7 @@ _html_listener("""
   }, false);
 </script>
 """, height=0)
+
 
 st.title("🧾 FavTrip Reporting Pipeline")
 
