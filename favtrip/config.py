@@ -224,6 +224,12 @@ class Config:
     REDIRECT_PORT: int = 58285
     HTTP_TIMEOUT_SECONDS: int = 300
 
+    #Cleanup
+    
+    OUTPUT_TIME_TO_LIFE: int = 30
+    FAILED_INPUT_TIME_TO_LIFE: int = 1
+
+
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
         """
@@ -248,6 +254,9 @@ class Config:
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
             TIMESTAMP_TZ=str(_get_secret("TIMESTAMP_TZ", "America/Chicago")),
             TIMESTAMP_FMT=str(_get_secret("TIMESTAMP_FMT", "%Y-%m-%d-%I-%M-%p")),
+
+            OUTPUT_TIME_TO_LIFE=int(_get_secret("OUTPUT_TIME_TO_LIFE", 30)),
+            FAILED_INPUT_TIME_TO_LIFE=int(_get_secret("FAILED_INPUT_TIME_TO_LIFE", 1)),
 
             TO_RECIPIENTS=_coerce_csv(_get_secret("TO_RECIPIENTS", "")),
             CC_RECIPIENTS=_coerce_csv(_get_secret("CC_RECIPIENTS", "")),
@@ -277,6 +286,8 @@ class Config:
             FORCE_REAUTH=_coerce_bool(_get_secret("FORCE_REAUTH", "false")),
             REDIRECT_PORT=int(str(_get_secret("REDIRECT_PORT", "58285")) or "58285"),
             HTTP_TIMEOUT_SECONDS=int(str(_get_secret("HTTP_TIMEOUT_SECONDS", "300")) or "300"),
+
+            
         )
 
         # ---------- 2) Overlay from Drive JSON config (optional) ----------
