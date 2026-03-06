@@ -190,6 +190,7 @@ def start_web_oauth(scopes):
 def finish_web_oauth(code: str, state_b64: str, scopes):
     """
     Recreate a Flow with the same redirect_uri and exchange code + code_verifier for tokens.
+    (Side-effect free: does not inject HTML or attempt to postMessage/close tabs.)
     """
     cfg = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
     state_obj = _parse_state(state_b64)
@@ -201,31 +202,7 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
         st.stop()
 
     flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=redirect)
-    # IMPORTANT: include code_verifier here to satisfy PKCE.
     flow.fetch_token(code=code, code_verifier=code_verifier)
-
-    html("""
-    <script>
-    try {
-        // Notify any listening tabs in the same origin
-        const bc = new BroadcastChannel('favtrip_oauth');
-        bc.postMessage({ type: 'favtrip_oauth_done' });
-        bc.close();
-    } catch (_) {}
-
-    // Also try traditional opener messaging (works if noopener removed)
-    try {
-        const topWin = window.top || window;
-        if (topWin.opener && !topWin.opener.closed) {
-        topWin.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
-        }
-    } catch (_) {}
-
-    // Try to close; if blocked, user will see the success UI
-    try { window.close(); } catch (_) {}
-    </script>
-    """, height=0)
-
 
     creds = flow.credentials
     with open("token.json", "w") as f:
@@ -233,61 +210,6 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
     return creds
 
 # --- OAuth Redirect Handler (Web/PKCE only) ---
-def handle_oauth_redirect_if_any(cfg):
-    # Parse query params safely
-    query_params = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
-    code = None
-    state = None
-
-    # Accept both styles of query param access
-    if isinstance(query_params, dict):
-        # streamlit>=1.31: st.query_params is Mapping[str, str]
-        code = query_params.get("code")
-        state = query_params.get("state")
-        # Older API returns list values
-        if isinstance(code, list): code = code[0] if code else None
-        if isinstance(state, list): state = state[0] if state else None
-
-    if not code or not state:
-        return  # no redirect present
-
-    try:
-        creds = finish_web_oauth(code=code, state_b64=state, scopes=cfg.SCOPES)
-
-        st.success("✅ Google sign‑in complete.")
-
-        # Clean URL
-        if hasattr(st, "query_params"):
-            st.query_params.clear()
-        else:
-            st.experimental_set_query_params()
-
-        # 🆕 Signal opener and close this tab
-        html("""
-        <script>
-        // 1) localStorage signal (works regardless of opener/noopener)
-        try { localStorage.setItem("favtrip_oauth_done", String(Date.now())); } catch (_) {}
-
-        // 2) Traditional opener postMessage (works if noopener wasn't used)
-        try {
-            const topWin = window.top || window;
-            if (topWin.opener && !topWin.opener.closed) {
-            topWin.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
-            }
-        } catch (_) {}
-
-        // 3) Try to close this tab (may be blocked; that's fine)
-        try { window.close(); } catch (_) {}
-        </script>
-        """, height=0)
-
-        # Fallback UI in case close() is blocked
-        st.success("✅ Google sign‑in complete.")
-        st.toast("Signed in to Google.")
-        st.caption("You can close this tab if it didn't close automatically.")
-        st.rerun()
-    except Exception as e:
-        st.error(f"OAuth finish failed: {e}")
 
 
 # =========================
@@ -641,79 +563,21 @@ def render_run_form(cfg):
             run_pipeline(cfg, logger)
             
     # 🔚 CLOSE the run card wrapper (ALWAYS close after the form block)
-    
-
-def render_auth_panel(cfg):
-    st.markdown("### Google Sign‑in")
-    st.caption("Sign in with your Google account to gain access to the app.")
-
-    if st.button("🔐 Sign in with Google", type="primary", use_container_width=True):
-        try:
-            auth_url = start_web_oauth(cfg.SCOPES)
-
-            # 🆕 Open Google OAuth in a NEW TAB (popup-style), like your old version.
-            
-            html(
-                    """
-                    <script>
-                    try {
-                        // Open OAuth tab (keep noopener)
-                        window.open(%s, "_blank", "noopener");
-
-                        // Reload when user returns to this tab
-                        document.addEventListener("visibilitychange", function() {
-                        try { if (!document.hidden) { location.reload(); } } catch(_) {}
-                        });
-                    } catch(_) {}
-                    </script>
-                    """ % json.dumps(auth_url),
-                    height=0,
-                )
 
 
-            # Optional: friendly message in the current tab
-            st.info("A new browser tab was opened for Google sign‑in. After it completes, return to this tab.")
-            st.stop()
-        except Exception as e:
-            st.error(f"Failed to start OAuth: {e}")
-
-    st.info("If you just completed sign‑in and returned here, the page will process your login automatically.")
 
 
 def render_sidebar():
-    st.sidebar.header("Utilities")
-    if st.session_state.get("auth_required", True):
-        if st.sidebar.button("Sign in"):
-            try:
-                auth_url = start_web_oauth(Config.load().SCOPES)
-
-                html(
-                    """
-                    <script>
-                    try {
-                        // Open OAuth tab (keep noopener)
-                        window.open(%s, "_blank", "noopener");
-
-                        // Reload when user returns to this tab
-                        document.addEventListener("visibilitychange", function() {
-                        try { if (!document.hidden) { location.reload(); } } catch(_) {}
-                        });
-                    } catch(_) {}
-                    </script>
-                    """ % json.dumps(auth_url),
-                    height=0,
-                )
-
-                st.sidebar.info("A new tab was opened for Google sign‑in.")
-                st.stop()
-            except Exception as e:
-                st.sidebar.error(f"Failed to start OAuth: {e}")
-    else:
-        st.sidebar.success("Signed in")
-        if st.sidebar.button("Sign out"):
-            clear_token()
-            st.session_state.auth_required = True
+    st.header("Utilities")
+    if st.button("Google Sign Out", type="secondary", use_container_width=True):
+        clear_token()
+        for key in ["auth_required", "oauth_url", "auth_checked"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        try:
             st.rerun()
+        except AttributeError:
+            st.experimental_rerun()
 
 # =========================
 # App Entrypoint
@@ -735,36 +599,19 @@ st.set_page_config(
 )
 
 
-_html_listener("""
-<script>
-  // 1) Listen for postMessage (works if opener is available / noopener not used)
-  window.addEventListener("message", function(e) {
-    try {
-      if (e && e.data && e.data.type === "favtrip_oauth_done") {
-        window.location.reload();
-      }
-    } catch (_) {}
-  }, false);
 
-  // 2) Listen for localStorage signal (works across same-origin tabs even with noopener)
-  try {
-    window.addEventListener("storage", function(e) {
-      try {
-        if (e && e.key === "favtrip_oauth_done") {
-          window.location.reload();
-        }
-      } catch (_) {}
-    });
-  } catch (_) {}
-
-  // NOTE: we also add a visibilitychange reload at the moment we launch the OAuth tab (below).
-</script>
-""", height=0)
 
 cfg = Config.load()
 
-# Handle OAuth redirect (if present in URL)
-handle_oauth_redirect_if_any(cfg)
+# Ensure session auth gate is established only once
+if "auth_checked" not in st.session_state:
+    st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
+    st.session_state.oauth_url = None
+    st.session_state.auth_checked = True
+
+# Keep this up to date if a token just got created/refreshed
+if load_valid_token(cfg.SCOPES):
+    cfg = Config.load()
 
 st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
 
@@ -783,7 +630,78 @@ with st.sidebar:
 
 # Auth gate
 if st.session_state.auth_required:
-    render_auth_panel(cfg)
+    # ----------------------------
+    # Authentication panel (shown only if auth required)
+    # ----------------------------
+    if st.session_state.auth_required:
+        with st.expander("Google Authentication", expanded=True):
+            st.caption(
+                "Authentication is required before running. "
+                "Click **Sign in with Google** to open the consent screen (it will open in a new tab)."
+            )
+
+            sign_in_ph = st.empty()
+            clicked = sign_in_ph.button("Sign in with Google", type="primary", use_container_width=True)
+
+            if clicked:
+                try:
+                    auth_url = start_web_oauth(cfg.SCOPES)
+
+                    # Remove the button immediately
+                    sign_in_ph.empty()
+
+                    # Show the same friendly 'signing you in...' message
+                    st.markdown(
+                        """
+                        <div style="
+                            display:flex;align-items:center;justify-content:center;
+                            height:55vh;text-align:center;
+                            font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+                        <div>
+                            <h2 style="margin-bottom:0.5rem;">You're being signed in…</h2>
+                            <p style="font-size:1.05rem;opacity:.9;">
+                            A new browser tab was opened for Google sign‑in.<br/>
+                            <strong>After it completes, you may close this tab.</strong>
+                            </p>
+                        </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    # Refresh this tab when the user returns focus
+                    html(
+                        """
+                        <script>
+                        document.addEventListener("visibilitychange", function() {
+                            if (!document.hidden) { location.reload(); }
+                        });
+                        </script>
+                        """,
+                        height=0,
+                    )
+
+                    # Open Google auth in a NEW tab (keep this tab on the message)
+                    html(
+                        f"""
+                        <script>
+                        window.open({json.dumps(auth_url)}, "_blank", "noopener");
+                        </script>
+                        """,
+                        height=0,
+                    )
+
+                    st.stop()  # keep the message visible
+                except Exception as e:
+                    st.error(f"Failed to start OAuth: {e}")
+
+            with st.expander("Having trouble?", expanded=False):
+                st.write(
+                    "- The Google authorization page opens in a **new browser tab**.\n"
+                    "- After completing consent, **close this tab** and use the new tab.\n"
+                    "- If you renamed your Streamlit app or URL, ensure the Google OAuth "
+                    "Authorized redirect URI matches exactly (including trailing slash)."
+                )
 else:
     # Ensure config reflects Drive-based overrides after auth
     cfg = Config.load()
