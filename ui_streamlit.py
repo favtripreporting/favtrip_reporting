@@ -303,10 +303,15 @@ def render_run_form(cfg):
     # RUN FORM CARD
     # =========================
     # When upload is OK, make the Run button green by adding .ft-run-green to the page segment
+    
     run_form_wrapper_classes = "ft-card ft-row"
     had_ok = st.session_state.get("incoming_uploaded_ok", False)
     if had_ok:
         run_form_wrapper_classes += " ft-run-green"
+
+    # OPEN the wrapper with real HTML (not &lt; &gt;)
+    st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
+
 
     with st.form("run_form"):
         # Header row uses the same columns to align the Run button with Upload button above
@@ -661,6 +666,7 @@ def render_run_form(cfg):
                             status.update(label="✅ Completed", state="complete")
                             _rerun()
 
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if "last_run_log" in st.session_state:
         st.download_button(
@@ -694,9 +700,19 @@ st.set_page_config(
 )
 
 
+st.markdown("""
+<style>
+/* Make only the primary button inside a .ft-run-green section look green */
+.ft-run-green .stButton > button[kind="primary"],
+.ft-run-green div[data-baseweb="button"] button[kind="primary"] {
+    background-color: #22c55e !important;  /* green */
+    border-color: #16a34a !important;
+    color: #ffffff !important;
+}
+.ft-right-btn { display:flex; justify-content:flex-end; }
+</style>
+""", unsafe_allow_html=True)
 
-
-cfg = Config.load()
 
 cfg = Config.load()
 
