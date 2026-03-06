@@ -534,9 +534,9 @@ if not st.session_state.auth_required:
 
         with col_run:
             run_marker = getattr(st.session_state, "ft_run_marker_html", "")
-                if run_marker:
-                    st.markdown(run_marker, unsafe_allow_html=True)
-                submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True, disabled=getattr(st.session_state, "ft_run_disabled", False))
+            if run_marker:
+                st.markdown(run_marker, unsafe_allow_html=True)
+            submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True, disabled=getattr(st.session_state, "ft_run_disabled", False))
 
 
         # ===== Upload row ABOVE Recipients =====
