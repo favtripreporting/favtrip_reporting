@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pandas
 import csv
 import io
 import re
@@ -38,7 +39,7 @@ def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
 
     # Freeze formulas if exporting Excel
     if fmt == "xlsx":
-        df = pd.read_excel(BytesIO(content))
+        df = pandas.read_excel(BytesIO(content))
         output = BytesIO()
         df.to_excel(output, index=False)
         return output.getvalue()
