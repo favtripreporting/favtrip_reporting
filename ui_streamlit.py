@@ -718,6 +718,8 @@ if "incoming_uploaded_ok" not in st.session_state:
     st.session_state.incoming_uploaded_ok = False
 if "offer_log_download" not in st.session_state:
     st.session_state.offer_log_download = False
+if "offer_log_download" not in st.session_state:
+    st.session_state.offer_log_download = False
 
 
 # Sidebar (always visible)
@@ -733,6 +735,11 @@ with st.sidebar:
             st.rerun()
         except AttributeError:
             st.experimental_rerun()
+    
+    st.checkbox(
+        "Offer full log download after completion",
+        key="offer_log_download",
+        help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
 
 # Auth gate
 if st.session_state.auth_required:

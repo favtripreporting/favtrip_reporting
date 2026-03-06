@@ -33,7 +33,17 @@ def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
     headers = {"Authorization": f"Bearer {creds.token}"}
     r = requests.get(url, headers=headers)
     r.raise_for_status()
-    return r.content
+
+    content = r.content
+
+    # Freeze formulas if exporting Excel
+    if fmt == "xlsx":
+        df = pd.read_excel(BytesIO(content))
+        output = BytesIO()
+        df.to_excel(output, index=False)
+        return output.getvalue()
+
+    return content
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
