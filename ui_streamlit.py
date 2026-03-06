@@ -208,6 +208,40 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
         f.write(creds.to_json())
     return creds
 
+# --- OAuth Redirect Handler (Web/PKCE only) ---
+def handle_oauth_redirect_if_any(cfg):
+    # Parse query params safely
+    query_params = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
+    code = None
+    state = None
+
+    # Accept both styles of query param access
+    if isinstance(query_params, dict):
+        # streamlit>=1.31: st.query_params is Mapping[str, str]
+        code = query_params.get("code")
+        state = query_params.get("state")
+        # Older API returns list values
+        if isinstance(code, list): code = code[0] if code else None
+        if isinstance(state, list): state = state[0] if state else None
+
+    if not code or not state:
+        return  # no redirect present
+
+    try:
+        creds = finish_web_oauth(code=code, state_b64=state, scopes=cfg.SCOPES)
+        # Persist and clear redirect params
+        st.session_state.auth_required = False
+        # Clean up URL (remove code/state) to avoid re-processing on rerun
+        if hasattr(st, "query_params"):
+            st.query_params.clear()
+        else:
+            st.experimental_set_query_params()
+        st.success("✅ Google sign‑in complete.")
+        st.toast("Signed in to Google.")
+        st.rerun()
+    except Exception as e:
+        st.error(f"OAuth finish failed: {e}")
+
 
 # =========================
 # UI Sections
@@ -566,6 +600,41 @@ def render_run_form(cfg):
             
     # 🔚 CLOSE the run card wrapper (ALWAYS close after the form block)
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_auth_panel(cfg):
+    st.markdown("### Google Sign‑in")
+    st.caption("Sign in with your Google account to allow access to Drive, Sheets, and Gmail as needed.")
+
+    # Show redirect base so you can verify it matches your Google Console config
+    redirect_base = _redirect_base()
+    with st.expander("OAuth details", expanded=False):
+        st.code(f"Redirect base: {redirect_base}", language="text")
+        st.code(f"Scopes: {', '.join(cfg.SCOPES)}", language="text")
+
+    if st.button("🔐 Sign in with Google", type="primary", use_container_width=True):
+        try:
+            auth_url = start_web_oauth(cfg.SCOPES)
+            st.markdown(f"[Click here to continue →]({auth_url})")
+            st.stop()
+        except Exception as e:
+            st.error(f"Failed to start OAuth: {e}")
+
+    st.info("If you just completed sign‑in and returned here, the page will process your login automatically.")
+
+
+def render_sidebar():
+    st.sidebar.header("FavTrip")
+    if st.session_state.get("auth_required", True):
+        if st.sidebar.button("Sign in"):
+            auth_url = start_web_oauth(Config.load().SCOPES)
+            st.sidebar.markdown(f"[Continue →]({auth_url})")
+    else:
+        st.sidebar.success("Signed in")
+        if st.sidebar.button("Sign out"):
+            clear_token()
+            st.session_state.auth_required = True
+            st.rerun()
 
 # =========================
 # App Entrypoint
