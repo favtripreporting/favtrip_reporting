@@ -574,7 +574,19 @@ def render_run_form(cfg):
 st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", layout="wide")
 st.title("🧾 FavTrip Reporting Pipeline")
 
-st.set_page_config(...)
+
+st.set_page_config(
+    page_title="FavTrip Reporting Pipeline",
+    page_icon="🧾",          # emoji or path/URL to an image
+    layout="wide",           # "centered" or "wide"
+    initial_sidebar_state="expanded",  # "auto", "expanded", "collapsed"
+    menu_items={
+        "Get Help": "mailto:ryan-morrow@uiowa.edu",
+        "Report a bug": "https://github.com/ryan-j-morrow/favtrip_reporting/issues",
+        "About": "FavTrip Reporting Pipeline",
+    },
+)
+
 
 # Global card/layout styles (once)
 st.markdown("""
