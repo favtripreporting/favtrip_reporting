@@ -614,7 +614,7 @@ def render_run_form(cfg):
             if cfg.FORCE_REAUTH:
                 clear_token()
                 try:
-                    flow, url = start_oauth(cfg.SCOPES, cfg.REDIRECT_PORT)
+                    flow, url = start_web_oauth(cfg.SCOPES, cfg.REDIRECT_PORT)
                     st.session_state.oauth_flow = flow
                     st.session_state.oauth_url = url
                     st.session_state.auth_required = True

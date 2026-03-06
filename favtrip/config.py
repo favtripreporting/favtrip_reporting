@@ -255,6 +255,9 @@ class Config:
             TIMESTAMP_TZ=str(_get_secret("TIMESTAMP_TZ", "America/Chicago")),
             TIMESTAMP_FMT=str(_get_secret("TIMESTAMP_FMT", "%Y-%m-%d-%I-%M-%p")),
 
+            OUTPUT_TIME_TO_LIFE=int(_get_secret("OUTPUT_TIME_TO_LIFE", 30)),
+            FAILED_INPUT_TIME_TO_LIFE=int(_get_secret("FAILED_INPUT_TIME_TO_LIFE", 1)),
+
             TO_RECIPIENTS=_coerce_csv(_get_secret("TO_RECIPIENTS", "")),
             CC_RECIPIENTS=_coerce_csv(_get_secret("CC_RECIPIENTS", "")),
             USE_ALL_REPORT_KEYS=_coerce_bool(_get_secret("USE_ALL_REPORT_KEYS", "false")),
