@@ -384,12 +384,20 @@ def render_run_form(cfg):
                 )
                 link = created.get("webViewLink", "")
 
+                # Mark upload success
                 st.session_state.incoming_uploaded_ok = True
+
+                # ✅ Clear/reset the uploader selection
+                st.session_state["incoming_upload"] = None
+                st.session_state["incoming_selected_name"] = None
+
                 st.success("✅ Uploaded to Incoming as a Google Sheet.")
                 if link:
                     st.link_button("Open uploaded Sheet", link, use_container_width=True)
                 st.caption("This will be treated as the latest incoming report on the next run.")
-                _rerun()  # refresh UI so Run button gating updates
+
+                # Refresh UI so Run button gating & style update and uploader clears
+                _rerun()
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 
@@ -410,6 +418,24 @@ def render_run_form(cfg):
             run_disabled = True            # a new file is selected but not uploaded yet
         else:
             run_disabled = False
+
+        # ✅ Make the Run button green once uploaded
+        if st.session_state.get("incoming_uploaded_ok", False):
+            st.markdown(
+                """
+                <style>
+                  /* Color the submit button (within the form) green when upload is OK */
+                  div[data-testid="stFormSubmitButton"] button {
+                      background-color: #188038 !important; /* Google green */
+                      color: #fff !important;
+                  }
+                  div[data-testid="stFormSubmitButton"] button:hover {
+                      filter: brightness(0.95);
+                  }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # Run button (top-right)
         with col_run:
