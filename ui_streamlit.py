@@ -659,6 +659,7 @@ def render_run_form(cfg):
                             st.session_state.incoming_selected_name = None
 
                             status.update(label="✅ Completed", state="complete")
+                            _rerun()
 
 
     if "last_run_log" in st.session_state:
@@ -669,7 +670,7 @@ def render_run_form(cfg):
             mime="text/plain",
             use_container_width=True
         )
-    _rerun()
+
 
 
 
