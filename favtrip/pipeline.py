@@ -144,7 +144,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     master_xlsx_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "xlsx")
 
     # Step 4C: Full order upload (XLSX) and export (PDF)
-    full_xlsx = export_sheet(creds, full_file_id, full_gid, "xlsx")
+    full_xlsx = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "xlsx")
     full_xlsx_name = f"Order_Report_{ts}_{location}_FULL.xlsx"
     full_created = upload_to_drive(drive_svc, full_xlsx, full_xlsx_name, XLSX_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
