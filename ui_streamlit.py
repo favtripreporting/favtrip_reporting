@@ -337,7 +337,7 @@ def render_run_form(cfg):
     if st.session_state.get("incoming_uploaded_ok", False):
         run_form_wrapper_classes += " ft-run-green"
 
-    st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
+    #st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
 
     with st.form("run_form"):
         # Header row uses the same columns to align the Run button with Upload button above
@@ -595,7 +595,7 @@ def render_run_form(cfg):
             run_pipeline(cfg, logger)
             
     # 🔚 CLOSE the run card wrapper (ALWAYS close after the form block)
-    st.markdown('</div>', unsafe_allow_html=True)
+    #st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_auth_panel(cfg):
@@ -620,7 +620,7 @@ def render_auth_panel(cfg):
 
 
 def render_sidebar():
-    st.sidebar.header("FavTrip")
+    st.sidebar.header("Utilities")
     if st.session_state.get("auth_required", True):
         if st.sidebar.button("Sign in"):
             auth_url = start_web_oauth(Config.load().SCOPES)
@@ -636,12 +636,11 @@ def render_sidebar():
 # App Entrypoint
 # =========================
 
-#st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", layout="wide")
 #st.title("🧾 FavTrip Reporting Pipeline")
 
 
 st.set_page_config(
-    page_title="FavTrip Reporting Pipeline",
+    page_title="FT Reporting",
     page_icon="🧾",          # emoji or path/URL to an image
     layout="wide",           # "centered" or "wide"
     initial_sidebar_state="expanded",  # "auto", "expanded", "collapsed"
@@ -652,6 +651,7 @@ st.set_page_config(
     },
 )
 
+st.title("🧾 FavTrip Reporting Pipeline")
 
 # Global card/layout styles (once)
 st.markdown("""
