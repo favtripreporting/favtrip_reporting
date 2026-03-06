@@ -29,22 +29,83 @@ def clean_tag(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", s.strip()).strip("-") or "UNKNOWN"
 
 
+import requests
+from io import BytesIO
+from openpyxl import Workbook
+
+
 def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
-    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format={fmt}&gid={gid}"
+   
+    fmt = (fmt or "").lower()
+
+    # Non-xlsx: passthrough to export endpoint (keeps your old behavior for CSV/PDF/etc.)
+    if fmt != "xlsx":
+        export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export"
+        params = {"format": fmt}
+        if gid is not None:
+            params["gid"] = str(gid)
+        headers = {"Authorization": f"Bearer {creds.token}"}
+        r = requests.get(export_url, headers=headers, params=params, timeout=120)
+        r.raise_for_status()
+        return r.content
+
+    # Robust .xlsx values-only path using Sheets API
     headers = {"Authorization": f"Bearer {creds.token}"}
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
 
-    content = r.content
+    # 1) Resolve gid -> sheet title
+    meta_params = {"fields": "sheets(properties(sheetId,title))"}
+    meta_resp = requests.get(base, headers=headers, params=meta_params, timeout=60)
+    meta_resp.raise_for_status()
+    meta = meta_resp.json()
 
-    # Freeze formulas if exporting Excel
-    if fmt == "xlsx":
-        df = pandas.read_excel(BytesIO(content))
-        output = BytesIO()
-        df.to_excel(output, index=False)
-        return output.getvalue()
+    target_sheet = None
+    target_gid = int(gid)
+    for s in meta.get("sheets", []):
+        props = s.get("properties", {})
+        if props.get("sheetId") == target_gid:
+            target_sheet = props
+            break
 
-    return content
+    if not target_sheet:
+        raise ValueError(f"No sheet found with gid={gid} in spreadsheet {spreadsheet_id}")
+
+    sheet_title = target_sheet.get("title", f"Sheet_{target_gid}")
+
+    # 2) Fetch evaluated values for the whole sheet
+    #    Use FORMATTED_VALUE so dates/numbers appear as users see them.
+    #    If you want raw numeric types, change to UNFORMATTED_VALUE and adjust date handling.
+    def _quote_sheet_name(name: str) -> str:
+        # A1 ranges require single quotes for names with spaces/special chars; escape single quotes.
+        return f"'{name.replace(\"'\", \"''\")}'"
+
+    range_a1 = _quote_sheet_name(sheet_title)  # full used range of the sheet
+    values_params = {
+        "valueRenderOption": "FORMATTED_VALUE",
+        "dateTimeRenderOption": "FORMATTED_STRING",
+        "majorDimension": "ROWS",
+    }
+    values_resp = requests.get(f"{base}/values/{range_a1}", headers=headers, params=values_params, timeout=120)
+    values_resp.raise_for_status()
+    values_json = values_resp.json()
+    rows = values_json.get("values", [])  # list[list[str|num|bool]]
+
+    # 3) Write a clean .xlsx with values only (no formulas)
+    wb = Workbook(write_only=True)
+    # Excel sheet names must be <= 31 chars
+    safe_title = (sheet_title or "Sheet")[:31]
+    ws = wb.create_sheet(title=safe_title)
+
+    # Append rows (streaming). Missing trailing cells are left blank.
+    for r in rows:
+        # Normalize empty strings to None where appropriate (optional).
+        # Leaving as-is preserves visual output (blank cells remain blank).
+        ws.append(r)
+
+    # Save to bytes
+    out = BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
