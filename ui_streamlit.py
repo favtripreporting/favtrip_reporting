@@ -288,7 +288,7 @@ def render_run_form(cfg):
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
                     st.session_state.incoming_selected_name = None
-                    run_disabled = False
+           
 
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
@@ -308,34 +308,43 @@ def render_run_form(cfg):
         run_form_wrapper_classes += " ft-run-green"
 
     
-    with st.form("run_form"):
-        # Header row uses the same columns to align the Run button with Upload button above
-        tl, _, col_run = st.columns([4, 1, 1])
-        with tl:
-            st.subheader("Run Options")
-            st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
+# =========================
+# RUN FORM CARD
+# =========================
+# When upload is OK, make the Run button green by adding .ft-run-green to the page segment
+run_form_wrapper_classes = "ft-card ft-row"
+had_ok = st.session_state.get("incoming_uploaded_ok", False)
+if had_ok:
+    run_form_wrapper_classes += " ft-run-green"
 
-        # Gate: require successful upload only if a new file is currently selected but not uploaded
-        if run_disabled == False:
-            pass
-        elif not file_selected:
-            run_disabled = True
-        elif file_selected and not st.session_state.get("incoming_uploaded_ok", False):
-            run_disabled = True
-        else:
-            run_disabled = False
+with st.form("run_form"):
+    # Header row uses the same columns to align the Run button with Upload button above
+    tl, _, col_run = st.columns([4, 1, 1])
+    with tl:
+        st.subheader("Run Options")
+        st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
 
-        with col_run:
-            # Right-align and full-width, matching Upload Now
-            st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
-            submitted = st.form_submit_button(
-                "▶️ Run Pipeline",
-                use_container_width=True,
-                disabled=run_disabled,
-                type="primary",
-                key="run_submit"
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
+    # --- Unified gating logic ---
+    # A) If a file is currently selected but not uploaded -> disable Run
+    # B) If no file selected and we have a prior successful upload -> enable Run
+    # C) Otherwise (no prior upload or ambiguous state) -> disable Run
+    file_selected = st.session_state.get("incoming_selected_name") is not None
+    had_ok = st.session_state.get("incoming_uploaded_ok", False)
+
+    run_enabled = (had_ok and not file_selected)
+    run_disabled = not run_enabled
+
+    with col_run:
+        # Right-align and full-width, matching Upload Now
+        st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
+        submitted = st.form_submit_button(
+            "▶️ Run Pipeline",
+            use_container_width=True,
+            disabled=run_disabled,
+            type="primary",
+            key="run_submit"
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # ----- Main options -----
 
