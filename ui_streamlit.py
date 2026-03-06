@@ -265,14 +265,19 @@ def handle_oauth_redirect_if_any(cfg):
         # 🆕 Signal opener and close this tab
         html("""
         <script>
+        // 1) localStorage signal (works regardless of opener/noopener)
+        try { localStorage.setItem("favtrip_oauth_done", String(Date.now())); } catch (_) {}
+
+        // 2) Traditional opener postMessage (works if noopener wasn't used)
         try {
-            // Notify opener (original tab) that OAuth finished
-            if (window.opener && !window.opener.closed) {
-            window.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
+            const topWin = window.top || window;
+            if (topWin.opener && !topWin.opener.closed) {
+            topWin.opener.postMessage({ type: "favtrip_oauth_done" }, "*");
             }
-        } catch (e) {}
-        // Close this OAuth tab
-        window.close();
+        } catch (_) {}
+
+        // 3) Try to close this tab (may be blocked; that's fine)
+        try { window.close(); } catch (_) {}
         </script>
         """, height=0)
 
@@ -647,12 +652,21 @@ def render_auth_panel(cfg):
             auth_url = start_web_oauth(cfg.SCOPES)
 
             # 🆕 Open Google OAuth in a NEW TAB (popup-style), like your old version.
+            
             html(f"""
             <script>
-              // Open in a new tab; 'noopener' avoids giving the new tab access to window.opener
-              window.open({json.dumps(auth_url)}, "_blank", "noopener");
+            // Open the OAuth tab (keep 'noopener' for safety)
+            window.open({json.dumps(auth_url)}, "_blank", "noopener");
+
+            // When the user comes back to this tab, refresh once to pick up token.json
+            document.addEventListener("visibilitychange", function() {
+                try {
+                if (!document.hidden) { location.reload(); }
+                } catch(_) {}
+            });
             </script>
             """, height=0)
+
 
             # Optional: friendly message in the current tab
             st.info("A new browser tab was opened for Google sign‑in. After it completes, return to this tab.")
@@ -670,11 +684,21 @@ def render_sidebar():
             try:
                 auth_url = start_web_oauth(Config.load().SCOPES)
 
+                
                 html(f"""
                 <script>
-                  window.open({json.dumps(auth_url)}, "_blank", "noopener");
+                // Open the OAuth tab (keep 'noopener' for safety)
+                window.open({json.dumps(auth_url)}, "_blank", "noopener");
+
+                // When the user comes back to this tab, refresh once to pick up token.json
+                document.addEventListener("visibilitychange", function() {
+                    try {
+                    if (!document.hidden) { location.reload(); }
+                    } catch(_) {}
+                });
                 </script>
                 """, height=0)
+
                 st.sidebar.info("A new tab was opened for Google sign‑in.")
                 st.stop()
             except Exception as e:
@@ -708,19 +732,7 @@ st.set_page_config(
 
 _html_listener("""
 <script>
-  // Reload the page when OAuth completes (channel-based)
-  try {
-    const bc = new BroadcastChannel('favtrip_oauth');
-    bc.onmessage = (e) => {
-      try {
-        if (e && e.data && e.data.type === 'favtrip_oauth_done') {
-          window.location.reload();
-        }
-      } catch (_) {}
-    };
-  } catch (_) {}
-
-  // Keep your fallback postMessage listener too (works if noopener is removed)
+  // 1) Listen for postMessage (works if opener is available / noopener not used)
   window.addEventListener("message", function(e) {
     try {
       if (e && e.data && e.data.type === "favtrip_oauth_done") {
@@ -728,37 +740,21 @@ _html_listener("""
       }
     } catch (_) {}
   }, false);
+
+  // 2) Listen for localStorage signal (works across same-origin tabs even with noopener)
+  try {
+    window.addEventListener("storage", function(e) {
+      try {
+        if (e && e.key === "favtrip_oauth_done") {
+          window.location.reload();
+        }
+      } catch (_) {}
+    });
+  } catch (_) {}
+
+  // NOTE: we also add a visibilitychange reload at the moment we launch the OAuth tab (below).
 </script>
 """, height=0)
-
-
-st.title("🧾 FavTrip Reporting Pipeline")
-
-# Global card/layout styles (once)
-st.markdown("""
-<style>
-.ft-card {
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 10px;
-  padding: 1rem;
-  background: #fff;
-  margin-bottom: 1rem;
-}
-.ft-card h4 { margin: 0 0 .5rem 0; }
-.ft-row { display: block; }
-.ft-right-btn > div { display: flex; justify-content: flex-end; }
-.ft-right-btn > div button, .ft-right-btn > div a { width: 100%; }
-
-/* Makes the Run button green when upload succeeded (applied via wrapper class) */
-.ft-run-green div[data-testid="stFormSubmitButton"] button {
-  background-color: #188038 !important;
-  color: #fff !important;
-}
-.ft-run-green div[data-testid="stFormSubmitButton"] button:hover {
-  filter: brightness(0.95);
-}
-</style>
-""", unsafe_allow_html=True)
 
 cfg = Config.load()
 
