@@ -1,38 +1,44 @@
 import os
 import time
 import threading
-import streamlit as st
-
-
-import base64, hashlib, secrets, json
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-
-
-# --- add near the top of ui_streamlit.py (after imports) ---
-import base64, hashlib, json, secrets
-import streamlit as st
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-
-
-from favtrip.google_client import load_valid_token, services
-from favtrip.config_store import load_config_from_drive
-
-from streamlit.components.v1 import html
-from streamlit.components.v1 import html as _html_msg
-
-
-
+import json
+import base64
+import hashlib
+import secrets
 import re
+
+import streamlit as st
+from streamlit.components.v1 import html
+
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+
+from favtrip.google_client import load_valid_token, services, clear_token
+from favtrip.config_store import save_config_to_drive
+from favtrip.config import Config
+from favtrip.logger import StatusLogger
+from favtrip.pipeline import run_pipeline
+from favtrip.drive_utils import upload_to_drive
+
+
+# =========================
+# Constants & Simple Helpers
+# =========================
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-def _parse_emails(csv_str: str):
+
+def _split_emails(csv_str: str):
     return [e.strip() for e in (csv_str or "").split(",") if e.strip()]
+
+
+def _parse_emails(csv_str: str):
+    return _split_emails(csv_str)
+
 
 def _invalid_emails(csv_str: str):
     return [e for e in _parse_emails(csv_str) if not EMAIL_RE.match(e)]
+
 
 def _analyze_rk_rows(rows):
     """
@@ -77,18 +83,19 @@ def _analyze_rk_rows(rows):
     return issues, preview, rk_map
 
 
-
 def _b64url(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
 
 def _pkce_pair() -> tuple[str, str]:
     """
     Generate a high-entropy PKCE code_verifier and its S256 code_challenge.
-    RFC 7636 requires 43–128 chars; this approach yields a URL-safe value.  [2](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow-with-pkce)
+    RFC 7636 requires 43–128 chars; this approach yields a URL-safe value.
     """
     verifier = _b64url(secrets.token_bytes(64))        # ~86 chars, URL-safe, no padding
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     return verifier, challenge
+
 
 def _redirect_base() -> str:
     """
@@ -106,6 +113,42 @@ def _redirect_base() -> str:
         st.error("OAuth redirect base is not set. Define APP_BASE_URL in Secrets.")
         st.stop()
     return base.rstrip("/") + "/"
+
+
+def _parse_state(state_b64: str) -> dict:
+    # Add padding back for base64 decoding if needed
+    padding = "=" * ((4 - len(state_b64) % 4) % 4)
+    raw = base64.urlsafe_b64decode(state_b64 + padding)
+    return json.loads(raw.decode("utf-8"))
+
+
+def _infer_media_mime(name: str) -> str:
+    n = (name or "").lower()
+    if n.endswith(".csv"):
+        return "text/csv"
+    if n.endswith(".xlsx"):
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return "application/octet-stream"
+
+
+def _get_drive_service_or_raise(cfg):
+    creds = load_valid_token(cfg.SCOPES)
+    if not creds:
+        raise RuntimeError("Google authorization required. Please sign in first.")
+    _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+    return drive
+
+
+def _rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        st.experimental_rerun()
+
+
+# =========================
+# OAuth (Web / PKCE)
+# =========================
 
 def start_web_oauth(scopes):
     """
@@ -134,7 +177,6 @@ def start_web_oauth(scopes):
         include_granted_scopes="true",
         prompt="consent",
         state=state_b64,
-        # PKCE parameters:
         code_challenge=code_challenge,
         code_challenge_method="S256",
     )
@@ -143,11 +185,6 @@ def start_web_oauth(scopes):
     st.session_state["_oauth_redirect"] = redirect
     return auth_url
 
-def _parse_state(state_b64: str) -> dict:
-    # Add padding back for base64 decoding if needed
-    padding = "=" * ((4 - len(state_b64) % 4) % 4)
-    raw = base64.urlsafe_b64decode(state_b64 + padding)
-    return json.loads(raw.decode("utf-8"))
 
 def finish_web_oauth(code: str, state_b64: str, scopes):
     """
@@ -163,7 +200,7 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
         st.stop()
 
     flow = Flow.from_client_config(cfg, scopes=scopes, redirect_uri=redirect)
-    # IMPORTANT: include code_verifier here to satisfy PKCE.  [1](https://github.com/googleapis/google-auth-library-python-oauthlib/issues/46)
+    # IMPORTANT: include code_verifier here to satisfy PKCE.
     flow.fetch_token(code=code, code_verifier=code_verifier)
 
     creds = flow.credentials
@@ -172,311 +209,72 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
     return creds
 
 
-from favtrip.config_store import save_config_to_drive
-from favtrip.config import Config
-from favtrip.logger import StatusLogger
-from favtrip.pipeline import run_pipeline
-from favtrip.google_client import (start_oauth, finish_oauth, load_valid_token, clear_token, services)
-from favtrip.drive_utils import upload_to_drive
+# =========================
+# UI Sections
+# =========================
 
-
-
-# --- Helpers for the upload control ---
-
-def _infer_media_mime(name: str) -> str:
-    n = (name or "").lower()
-    if n.endswith(".csv"):
-        return "text/csv"
-    if n.endswith(".xlsx"):
-        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    # Fallback (Drive will still try, but we only allow csv/xlsx in the UI)
-    return "application/octet-stream"
-
-def _get_drive_service_or_raise(cfg):
-    creds = load_valid_token(cfg.SCOPES)
-    if not creds:
-        raise RuntimeError("Google authorization required. Please sign in first.")
-    _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-    return drive
-
-
-
-def _rerun():
-    # Works on Streamlit >= 1.27 (st.rerun) and older (experimental_rerun)
-    try:
-        st.rerun()
-    except AttributeError:
-        st.experimental_rerun()
-
-st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", layout="wide")
-
-
-# --- Larger Run button ---
-# --- REPLACE existing CSS block with this compact style ---
-# --- ADD / MERGE THIS CSS FOR THE RUN BUTTON ---
-
-st.markdown(
-    """
-    <style>
-    
-    /* Right-align the run button in its column */
-    .ft-runwrap {
-        display: flex;
-        justify-content: flex-end;
-        width: 100%;
-    }
-
-    /* Target ONLY the submit button used by st.form */
-    div[data-testid="stFormSubmitButton"] button {
-        background-color: #1a73e8 !important;   /* BLUE */
-        color: white !important;                /* WHITE TEXT */
-        font-size: 1.20rem !important;          /* BIGGER TEXT */
-        font-weight: 600 !important;            /* BOLD */
-        padding: 0.90rem 2.0rem !important;     /* LONGER BUTTON */
-        border-radius: 10px !important;         /* SOFT CORNERS */
-        border: none !important;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-        width: 100%;                            /* STRETCH INSIDE BUTTON WRAP */
-        text-align: center;
-    }
-
-    /* Hover and active states */
-    div[data-testid="stFormSubmitButton"] button:hover {
-        filter: brightness(0.93);
-    }
-    div[data-testid="stFormSubmitButton"] button:active {
-        transform: translateY(1px);
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-st.markdown("""
-<style>
-/* Compact the uploader row to match one text-input line */
-.ft-upload-row { margin-top: 0.25rem; margin-bottom: 0.25rem; }
-.ft-upload-row .stFileUploader {
-  padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
-}
-.ft-upload-title {
-  margin: 0 0 0.25rem 0;
-  font-size: 0.9rem; font-weight: 600; opacity: 0.8;
-}
-/* Right-align the upload button like the Run button */
-.ft-align-right > div { display: flex; justify-content: flex-end; }
-</style>
-""", unsafe_allow_html=True)
-
-# 4) CSS (make sure these are real <style> tags)
-st.markdown("""
-<style>
-:root{
-  --ft-grey:  #9aa0a6;
-  --ft-red:   #d93025;
-  --ft-green: #188038;
-  --ft-blue:  #1a73e8;
-}
-
-/* Normalize */
-div[data-testid="stFormSubmitButton"] button {
-  color: #fff !important;
-  border: none !important;
-}
-
-/* RUN (primary) by state */
-html[data-ft-run="grey"] [data-testid="baseButton-primaryFormSubmit"] {
-  background: var(--ft-grey) !important;
-}
-html[data-ft-run="blue"] [data-testid="baseButton-primaryFormSubmit"] {
-  background: var(--ft-blue) !important;
-}
-
-/* UPLOAD (secondary) by state */
-html[data-ft-upload="none"] [data-testid="baseButton-secondaryFormSubmit"] {
-  background: var(--ft-grey) !important;
-}
-html[data-ft-upload="need"] [data-testid="baseButton-secondaryFormSubmit"] {
-  background: var(--ft-red) !important;
-}
-html[data-ft-upload="ok"] [data-testid="baseButton-secondaryFormSubmit"] {
-  background: var(--ft-green) !important;
-}
-
-/* Hover/active polish */
-[data-testid="baseButton-primaryFormSubmit"]:hover,
-[data-testid="baseButton-secondaryFormSubmit"]:hover { filter: brightness(0.93); }
-[data-testid="baseButton-primaryFormSubmit"]:active,
-[data-testid="baseButton-secondaryFormSubmit"]:active { transform: translateY(1px); }
-</style>
-""", unsafe_allow_html=True)
-
-
-# --- END CSS ---
-# --- END ADD / MERGE ---
-
-st.title("🧾 FavTrip Reporting Pipeline")
-
-cfg = Config.load()
-
-
-# --- Upload state flags ---
-if "incoming_selected_name" not in st.session_state:
-    st.session_state.incoming_selected_name = None
-
-if "incoming_uploaded_ok" not in st.session_state:
-    # True only after a successful upload of the currently selected file
-    st.session_state.incoming_uploaded_ok = False
-
-#Old Config Diagonistics
-def hide():
-    with st.expander("🔎 Config diagnostics", expanded=False):
-        try:
-            CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
-            st.write(f"CONFIG_FILE_ID (Secrets): `{CONFIG_FILE_ID or '(unset)'}`")
-
-            token = load_valid_token(cfg.SCOPES)
-            if not token:
-                st.warning("No valid Google token yet. Drive overlay hasn't run.")
-            else:
-                _sheets, drive, _gmail = services(token, cfg.HTTP_TIMEOUT_SECONDS)
-                overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)
-                if overrides:
-                    st.success(f"Loaded Drive overrides ({len(overrides)} keys).")
-                    # show just the most relevant keys
-                    show = {k: overrides.get(k) for k in [
-                        "CALC_SPREADSHEET_ID", "INCOMING_FOLDER_ID",
-                        "MANAGER_REPORT_FOLDER_ID", "ORDER_REPORT_FOLDER_ID",
-                        "TO_RECIPIENTS", "REPORT_KEY_RUN_LIST"
-                    ]}
-                    st.json(show)
-                else:
-                    st.error("No Drive config found (or file empty).")
-                    st.caption("If you just saved defaults to Drive, copy its file id into Secrets as CONFIG_FILE_ID and rerun.")
-        except Exception as e:
-            st.error(f"Diagnostics failed: {e}")
-
-    st.caption("**Effective config (current page state):**")
-    colA, colB = st.columns(2)
-    with colA:
-        st.write("**IDs**")
-        st.code({
-            "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
-            "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
-            "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
-            "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
-        }, language="json")
-        st.write("**Recipients**")
-        st.code({
-            "TO_RECIPIENTS": cfg.TO_RECIPIENTS,
-            "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
-            "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
-        }, language="json")
-    with colB:
-        st.write("**Flags & lists**")
-        st.code({
-            "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
-            "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
-            "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
-        }, language="json")
-        st.write("**GIDs / TZ**")
-        st.code({
-            "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
-            "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
-            "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
-            "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
-            "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
-            "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
-        }, language="json")
-    
-params = st.query_params
-if "code" in params and "state" in params:
-    try:
-        finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
-        st.success("✅ Google authentication complete.")
-        st.query_params.clear()
-        # NEW: tell the opener to refresh and then close the popup
-        html(
-            """
-            <script>
-              try {
-                if (window.opener && !window.opener.closed) {
-                  window.opener.postMessage({type: "favtrip_oauth_done"}, "*");
-                }
-              } catch (e) {}
-              // Close this popup
-              window.close();
-            </script>
-            """,
-            height=0,
-        )
-        # Fallback: in case the browser blocks close(), allow manual continue
-        st.caption("You can close this window if it didn't close automatically.")
-    except Exception as e:
-        st.error(f"OAuth error: {e}")
-if load_valid_token(cfg.SCOPES):
-    cfg = Config.load()
-
-# ----------------------------
-# Session state: auth gating
-# ----------------------------
-if "auth_checked" not in st.session_state:
-    # On first load: if token is missing/invalid/unrefreshable -> require auth
-    st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
-    st.session_state.oauth_flow = None
-    st.session_state.oauth_url = None
-    st.session_state.auth_checked = True
-
-
-if "offer_log_download" not in st.session_state:
-    st.session_state.offer_log_download = False
-
-
-# Sidebar controls (always visible)
-with st.sidebar:
+def render_sidebar():
     st.header("Utilities")
 
     if st.button("Google Sign Out", type="secondary", use_container_width=True):
         clear_token()
-        for key in ["auth_required", "oauth_flow", "oauth_url", "auth_checked"]:
+        for key in ["auth_required", "_oauth_redirect"]:
             if key in st.session_state:
                 del st.session_state[key]
         _rerun()
-        
+
     st.checkbox(
         "Offer full log download after completion",
         key="offer_log_download",
-        help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
+        help="If enabled, a 'Download last_run.log' button appears when a run finishes."
+    )
 
 
-# ----------------------------
-# Authentication panel (shown only if auth required)
-# ----------------------------
+def handle_oauth_redirect_if_any(cfg):
+    params = st.query_params
+    if "code" in params and "state" in params:
+        try:
+            finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
+            st.success("✅ Google authentication complete.")
+            st.query_params.clear()
 
-# --- Authentication expander (shown only if auth required) ---
-if st.session_state.auth_required:
+            # Notify opener (if any), then close this tab.
+            html(
+                """
+                <script>
+                  try {
+                    if (window.opener && !window.opener.closed) {
+                      window.opener.postMessage({type: "favtrip_oauth_done"}, "*");
+                    }
+                  } catch (e) {}
+                  window.close();
+                </script>
+                """,
+                height=0,
+            )
+            st.caption("You can close this window if it didn't close automatically.")
+        except Exception as e:
+            st.error(f"OAuth error: {e}")
+
+
+def render_auth_panel(cfg):
     with st.expander("Google Authentication", expanded=True):
         st.caption(
             "Authentication is required before running. "
             "Click **Sign in with Google** to open the consent screen (it will open in a new tab)."
         )
 
-        # Use a placeholder so we can remove the button immediately
         sign_in_ph = st.empty()
-
-        # Render the button inside the placeholder
         clicked = sign_in_ph.button("Sign in with Google", type="primary", use_container_width=True)
 
         if clicked:
             try:
                 auth_url = start_web_oauth(cfg.SCOPES)
 
-                # 1) Clear the placeholder to remove the button immediately
+                # Remove the button immediately
                 sign_in_ph.empty()
 
-                # 2) Show the message in the current tab
+                # Show message
                 st.markdown(
                     """
                     <div style="
@@ -495,7 +293,7 @@ if st.session_state.auth_required:
                     unsafe_allow_html=True,
                 )
 
-                # (Optional) If user returns to this tab later, refresh to show signed-in state
+                # If user returns to this tab later, refresh to show signed-in state
                 html(
                     """
                     <script>
@@ -507,7 +305,7 @@ if st.session_state.auth_required:
                     height=0,
                 )
 
-                # 3) Open Google auth in a NEW tab (leave this tab on the message)
+                # Open Google auth in a NEW tab
                 html(
                     f"""
                     <script>
@@ -517,7 +315,6 @@ if st.session_state.auth_required:
                     height=0,
                 )
 
-                # 4) Stop further rendering so the message persists
                 st.stop()
 
             except Exception as e:
@@ -531,24 +328,86 @@ if st.session_state.auth_required:
                 "Authorized redirect URI matches exactly (including trailing slash)."
             )
 
-# ----------------------------
-# Only show Run Options if NOT requiring auth
-# ----------------------------
-if not st.session_state.auth_required:
-    # ---- Run Form (Run button top-right) ----
+
+def run_pipeline_with_status(cfg, logger: StatusLogger):
+    result_holder = {"value": None, "error": None}
+
+    def _runner():
+        try:
+            result_holder["value"] = run_pipeline(cfg, logger=logger)
+        except BaseException as e:
+            result_holder["error"] = e
+
+    t0 = time.perf_counter()
+    th = threading.Thread(target=_runner, daemon=True)
+    th.start()
+
+    with st.status("Running pipeline…", expanded=True) as status:
+        timer_ph = st.empty()
+        lastlog_ph = st.empty()
+        while th.is_alive():
+            elapsed = int(time.perf_counter() - t0)
+            timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
+            lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
+            time.sleep(0.5)
+
+        th.join()
+        elapsed = int(time.perf_counter() - t0)
+        timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
+        lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
+
+        if result_holder["error"]:
+            st.error(f"Run failed: {result_holder['error']}")
+            try:
+                st.exception(result_holder["error"])
+            except Exception:
+                pass
+            status.update(label="❌ Failed", state="error")
+            return
+
+        result = result_holder["value"]
+        if result is None:
+            st.error("Run finished without returning a result. Check logs and inputs (IDs, Drive access).")
+            status.update(label="⚠️ No result", state="error")
+            return
+
+        st.write("### Outputs")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Location", result.location)
+        col2.metric("Timestamp", result.timestamp)
+        mm = result.elapsed_seconds
+        col3.metric("Elapsed", f"{mm//3600:02d}:{(mm%3600)//60:02d}:{mm%60:02d}")
+
+        if getattr(result, "manager_pdf_link", None):
+            st.success(f"Manager PDF: {result.manager_pdf_link}")
+        if getattr(result, "full_order_link", None):
+            st.success(f"Full Order Sheet: {result.full_order_link}")
+
+        if st.session_state.get("offer_log_download") and os.path.exists("last_run.log"):
+            with open("last_run.log", "rb") as f:
+                st.download_button(
+                    "⬇️ Download full log (last_run.log)",
+                    f,
+                    file_name=f"last_run_{result.timestamp}.log",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+
+        status.update(label="✅ Completed", state="complete")
+
+
+def render_run_form(cfg):
     with st.form("run_form"):
-        # ---- Header text on left, reserve run-button space on right ----
-        tl, gap, col_run = st.columns([4, 1, 1])
+        # Header row
+        tl, _, col_run = st.columns([4, 1, 1])
         with tl:
             st.subheader("Run Options")
             st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
 
-        # ===== Upload row ABOVE state computation =====
-        st.markdown('<div class="ft-upload-title">Upload Current Week Sales Report</div>', unsafe_allow_html=True)
-        up_col, gap2, upbtn_col = st.columns([4, 1, 1])
+        # Upload row
+        st.markdown("**Upload Current Week Sales Report**")
+        up_col, _, upbtn_col = st.columns([4, 1, 1])
         with up_col:
-            st.markdown('<div class="ft-upload-row">', unsafe_allow_html=True)
-            # 1) Define incoming_file BEFORE you compute states
             incoming_file = st.file_uploader(
                 "Upload Current Week Sales Report",
                 type=["xlsx", "csv"],
@@ -557,94 +416,38 @@ if not st.session_state.auth_required:
                 label_visibility="collapsed",
                 accept_multiple_files=False,
             )
-            st.markdown('</div>', unsafe_allow_html=True)
 
-        # 2) Compute states NOW that incoming_file exists
+        # Track selection to manage gating (must click Upload Now successfully before Run)
         file_selected = incoming_file is not None
-        if file_selected and st.session_state.incoming_selected_name != incoming_file.name:
+        if file_selected and st.session_state.get("incoming_selected_name") != incoming_file.name:
             st.session_state.incoming_selected_name = incoming_file.name
             st.session_state.incoming_uploaded_ok = False
 
+        # Gate: require successful upload before running
         if not file_selected:
-            upload_state = "none"  # grey
-            run_disabled = False
-            run_state = "blue"     # default blue
-        elif file_selected and not st.session_state.incoming_uploaded_ok:
-            upload_state = "need"  # red
+            run_disabled = False     # allow runs without a new upload
+        elif file_selected and not st.session_state.get("incoming_uploaded_ok", False):
             run_disabled = True
-            run_state = "grey"
         else:
-            upload_state = "ok"    # green
             run_disabled = False
-            run_state = "blue"
 
-        # ---- Publish state to <html> so CSS can dynamically color the buttons ----
-        # (Works even though these elements are not DOM parents of the buttons)
-        html(
-            f"""
-            <script>
-            document.documentElement.setAttribute('data-ft-upload', {json.dumps(upload_state)});
-            document.documentElement.setAttribute('data-ft-run', {json.dumps(run_state)});
-            </script>
-            """,
-            height=0,
-        )
-
-        # ---- Dynamic button CSS (targets PRIMARY/SECONDARY submit buttons) ----
-        # Safe to include here; remove your old #ft-run/#ft-upload wrapper rules.
-        st.markdown("""
-        <style>
-        /* Ensure text is readable and borders removed */
-        [data-testid="baseButton-primaryFormSubmit"],
-        [data-testid="baseButton-secondaryFormSubmit"] {
-            color: #fff !important;
-            border: none !important;
-        }
-
-        /* RUN (primary) by state */
-        html[data-ft-run="grey"] [data-testid="baseButton-primaryFormSubmit"] {
-            background: var(--ft-grey) !important;
-        }
-        html[data-ft-run="blue"] [data-testid="baseButton-primaryFormSubmit"] {
-            background: var(--ft-blue) !important;
-        }
-
-        /* UPLOAD (secondary) by state */
-        html[data-ft-upload="none"] [data-testid="baseButton-secondaryFormSubmit"] {
-            background: var(--ft-grey) !important;
-        }
-        html[data-ft-upload="need"] [data-testid="baseButton-secondaryFormSubmit"] {
-            background: var(--ft-red) !important;
-        }
-        html[data-ft-upload="ok"] [data-testid="baseButton-secondaryFormSubmit"] {
-            background: var(--ft-green) !important;
-        }
-
-        /* Hover/active polish */
-        [data-testid="baseButton-primaryFormSubmit"]:hover,
-        [data-testid="baseButton-secondaryFormSubmit"]:hover { filter: brightness(0.93); }
-        [data-testid="baseButton-primaryFormSubmit"]:active,
-        [data-testid="baseButton-secondaryFormSubmit"]:active { transform: translateY(1px); }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # 3) Render the RUN button (top-right). No wrapper needed; rely on html[data-ft-run]
+        # Run button (top-right)
         with col_run:
             submitted = st.form_submit_button(
                 "▶️ Run Pipeline",
                 use_container_width=True,
                 disabled=run_disabled,
-                type="primary",      # <— makes selector stable: [data-testid="baseButton-primaryFormSubmit"]
+                type="primary",
                 key="run_submit"
             )
 
-        # 4) Render the UPLOAD button (right side of uploader row). No wrapper needed.
+        # Upload button (next to uploader)
         with upbtn_col:
             upload_clicked = st.form_submit_button(
                 "⬆️ Upload Now",
                 use_container_width=True,
                 disabled=(not file_selected),
-                type="secondary",    # <— stable selector: [data-testid="baseButton-secondaryFormSubmit"]
+                type="secondary",
                 key="upload_submit"
             )
 
@@ -656,92 +459,82 @@ if not st.session_state.auth_required:
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
-                    # Build Drive service using your existing helpers
-                    drive = _get_drive_service_or_raise(cfg)  # uses load_valid_token(...) + services(...)
-                    # Convert to Google Sheet so 'find_latest_sheet' sees it
+                    drive = _get_drive_service_or_raise(cfg)
                     media_mime = _infer_media_mime(incoming_file.name)
-                    base_name  = os.path.splitext(incoming_file.name)[0]
-                    nice_name  = f"{base_name} (uploaded via UI)"
+                    base_name = os.path.splitext(incoming_file.name)[0]
+                    nice_name = f"{base_name} (uploaded via UI)"
                     created = upload_to_drive(
                         drive,
                         data=incoming_file.getvalue(),
                         name=nice_name,
                         mime=media_mime,
                         folder_id=cfg.INCOMING_FOLDER_ID,
-                        to_sheet=True,  # crucial for discovery by your pipeline
+                        to_sheet=True,
                     )
                     link = created.get("webViewLink", "")
 
-                    st.session_state.incoming_uploaded_ok = True  # mark success for color swap
+                    st.session_state.incoming_uploaded_ok = True
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
                         st.link_button("Open uploaded Sheet", link, use_container_width=True)
                     st.caption("This will be treated as the latest incoming report on the next run.")
-
-                    # IMPORTANT: rerun immediately so button colors/disabled states flip now
                     _rerun()
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
 
-        # --- Main options ---
+        # ----- Main options -----
 
-        # ===== Recipients (compact two columns) =====
-        with st.container():
-            st.markdown("##### Recipients")
-            with st.container():
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    to = st.text_input(
-                        "To (comma)", value=",".join(cfg.TO_RECIPIENTS or []),
-                        help="Fallback recipients for Manager & Order emails."
-                    )
-                with col2:
-                    cc = st.text_input(
-                        "CC (comma)", value=",".join(cfg.CC_RECIPIENTS or []),
-                        help="Optional CC added to all emails."
-                    )
+        # Recipients
+        st.markdown("##### Recipients")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            to = st.text_input(
+                "To (comma)", value=",".join(cfg.TO_RECIPIENTS or []),
+                help="Fallback recipients for Manager & Order emails."
+            )
+        with col2:
+            cc = st.text_input(
+                "CC (comma)", value=",".join(cfg.CC_RECIPIENTS or []),
+                help="Optional CC added to all emails."
+            )
 
-        # ===== Report Keys (toggle + input aligned) =====
-        with st.container():
-            st.markdown("##### Report Keys")
-            with st.container():
-                colk1, colk2 = st.columns([0.45, 1.55])
-                with colk1:
-                    use_all = st.toggle(
-                        "Use all keys from CSV",
-                        value=cfg.USE_ALL_REPORT_KEYS,
-                        help="ON: process every key found. OFF: only the keys you list."
-                    )
-                with colk2:
-                    report_keys = st.text_input(
-                        "Keys to run (comma)",
-                        value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
-                        help="Used when 'Use all keys' is OFF. Example: COFFEE,GROCERY"
-                    )
+        # Report Keys
+        st.markdown("##### Report Keys")
+        colk1, colk2 = st.columns([0.45, 1.55])
+        with colk1:
+            use_all = st.toggle(
+                "Use all keys from CSV",
+                value=cfg.USE_ALL_REPORT_KEYS,
+                help="ON: process every key found. OFF: only the keys you list."
+            )
+        with colk2:
+            report_keys = st.text_input(
+                "Keys to run (comma)",
+                value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
+                help="Used when 'Use all keys' is OFF. Example: COFFEE,GROCERY"
+            )
 
-        # ===== Email Behavior (two toggles in one row) =====
-        with st.container():
-            st.markdown("##### Email Behavior")
-            cole1, cole2, cole3 = st.columns([1, 1, 1])
-            with cole1:
-                include_full = st.toggle(
-                    "Attach FULL order in each email",
-                    value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL
-                )
-            with cole2:
-                send_full = st.toggle(
-                    "Send separate FULL order email",
-                    value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL
-                )
-            with cole3:
-                email_mgr = st.toggle(
-                    "Email Manager Report",
-                    value=getattr(cfg, "EMAIL_MANAGER_REPORT", True),
-                    help="When ON, the Manager Report email is sent. When OFF, it is skipped."
-                )
+        # Email Behavior
+        st.markdown("##### Email Behavior")
+        cole1, cole2, cole3 = st.columns([1, 1, 1])
+        with cole1:
+            include_full = st.toggle(
+                "Attach FULL order in each email",
+                value=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL
+            )
+        with cole2:
+            send_full = st.toggle(
+                "Send separate FULL order email",
+                value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL
+            )
+        with cole3:
+            email_mgr = st.toggle(
+                "Email Manager Report",
+                value=getattr(cfg, "EMAIL_MANAGER_REPORT", True),
+                help="When ON, the Manager Report email is sent. When OFF, it is skipped."
+            )
 
-        # ===== Put optional editors/switches in cards for light framing =====
-        st.markdown('<div class="ft-card">', unsafe_allow_html=True)
+        # Per‑Report‑Key Recipients
         with st.expander("Per‑Report‑Key Recipients (optional)", expanded=False):
             st.caption("Map **REPORT KEY (ALL CAPS)** → **Emails (comma)**.")
             rows = []
@@ -757,16 +550,14 @@ if not st.session_state.auth_required:
                 key="rk_editor",
             )
 
-            # Preview + validation
             rk_issues, rk_preview, rk_map_preview = _analyze_rk_rows(edited_rows)
             if rk_preview:
                 with st.expander("Row template preview"):
                     st.code("\n".join(rk_preview), language="text")
             if rk_issues:
                 st.warning("Per‑report‑key recipient issues:\n\n- " + "\n- ".join(rk_issues))
-        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="ft-card">', unsafe_allow_html=True)
+        # Advanced
         with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)", expanded=False):
             st.markdown("##### Google Drive / Sheets IDs")
             ga1, ga2 = st.columns([1, 1])
@@ -799,221 +590,161 @@ if not st.session_state.auth_required:
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                     help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
-        st.markdown('</div>', unsafe_allow_html=True)
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
-    # ----------------------------
-    # Submission handling
-    # ----------------------------
-    def _split_emails(csv_str: str):
-        return [e.strip() for e in (csv_str or "").split(",") if e.strip()]
 
-    if submitted:
-        # Apply per-run config
-        cfg.TO_RECIPIENTS = _split_emails(to)
-        cfg.CC_RECIPIENTS = _split_emails(cc)
-        cfg.USE_ALL_REPORT_KEYS = use_all
-        cfg.REPORT_KEY_RUN_LIST = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
+        # ----- Submission handling -----
+        if submitted:
+            # Apply per-run config
+            cfg.TO_RECIPIENTS = _split_emails(to)
+            cfg.CC_RECIPIENTS = _split_emails(cc)
+            cfg.USE_ALL_REPORT_KEYS = use_all
+            cfg.REPORT_KEY_RUN_LIST = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
 
-        cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL = include_full
-        cfg.SEND_SEPARATE_FULL_ORDER_EMAIL = send_full
-        cfg.EMAIL_MANAGER_REPORT = bool(email_mgr)
+            cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL = include_full
+            cfg.SEND_SEPARATE_FULL_ORDER_EMAIL = send_full
+            cfg.EMAIL_MANAGER_REPORT = bool(email_mgr)
 
-        cfg.CALC_SPREADSHEET_ID = calc_id
-        cfg.INCOMING_FOLDER_ID = incoming_id
-        cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
-        cfg.ORDER_REPORT_FOLDER_ID = order_folder
-        cfg.REDIRECT_PORT = int(redirect_port)
+            cfg.CALC_SPREADSHEET_ID = calc_id
+            cfg.INCOMING_FOLDER_ID = incoming_id
+            cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
+            cfg.ORDER_REPORT_FOLDER_ID = order_folder
+            cfg.REDIRECT_PORT = int(redirect_port)
 
-        cfg.GID_MANAGER_PDF = gid_mgr
-        cfg.GID_ORDER_CSV = gid_order
-        cfg.LOCATION_SHEET_TITLE = loc_sheet
-        cfg.LOCATION_NAMED_RANGE = loc_range
-        cfg.TIMESTAMP_TZ = tz
-        cfg.TIMESTAMP_FMT = tfmt
+            cfg.GID_MANAGER_PDF = gid_mgr
+            cfg.GID_ORDER_CSV = gid_order
+            cfg.LOCATION_SHEET_TITLE = loc_sheet
+            cfg.LOCATION_NAMED_RANGE = loc_range
+            cfg.TIMESTAMP_TZ = tz
+            cfg.TIMESTAMP_FMT = tfmt
 
-        # Per-key recipients from editor
-        
-        rk_map = {}
-        for r in edited_rows:
-            key = (r.get("REPORT KEY (ALL CAPS)") or "").strip()
-            emails_csv = r.get("Emails (comma)") or ""
-            emails = _parse_emails(emails_csv)
-            if key and emails:
-                rk_map[key] = emails
-        cfg.REPORT_KEY_RECIPIENTS = rk_map
+            # Per-key recipients
+            rk_map = {}
+            for r in edited_rows:
+                key = (r.get("REPORT KEY (ALL CAPS)") or "").strip()
+                emails_csv = r.get("Emails (comma)") or ""
+                emails = _parse_emails(emails_csv)
+                if key and emails:
+                    rk_map[key] = emails
+            cfg.REPORT_KEY_RECIPIENTS = rk_map
 
-        # --- ADD: warnings before kicking off the run ---
-        # 1) Warn if use_all is OFF and no explicit keys provided
-        requested_keys = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
-        if not use_all and not requested_keys:
-            st.warning(
-                "You left **Use all Report Keys** OFF but provided **no keys** to run. "
-                "No per‑key outputs will be generated unless you add keys.",
-                icon="⚠️"
-            )
+            # Warnings
+            requested_keys = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
+            if not use_all and not requested_keys:
+                st.warning(
+                    "You left **Use all Report Keys** OFF but provided **no keys** to run. "
+                    "No per‑key outputs will be generated unless you add keys.",
+                    icon="⚠️"
+                )
 
-        # 2) Warn if no recipients anywhere (TO, DEFAULT_ORDER, or per‑key map)
-        any_to = bool(_parse_emails(to) or (cfg.TO_RECIPIENTS or []))
-        any_default = bool(cfg.DEFAULT_ORDER_RECIPIENTS or [])
-        any_per_key = bool(cfg.REPORT_KEY_RECIPIENTS)
-        if not (any_to or any_default or any_per_key):
-            st.warning(
-                "No recipients are defined: **TO**, **DEFAULT_ORDER_RECIPIENTS**, and **Per‑Report‑Key** are all empty. "
-                "Emails will not be sent.",
-                icon="⚠️"
-            )
+            any_to = bool(_parse_emails(to) or (cfg.TO_RECIPIENTS or []))
+            any_default = bool(cfg.DEFAULT_ORDER_RECIPIENTS or [])
+            any_per_key = bool(cfg.REPORT_KEY_RECIPIENTS)
+            if not (any_to or any_default or any_per_key):
+                st.warning(
+                    "No recipients are defined: **TO**, **DEFAULT_ORDER_RECIPIENTS**, and **Per‑Report‑Key** are all empty. "
+                    "Emails will not be sent.",
+                    icon="⚠️"
+                )
 
-        # 3) Surface per-key table issues detected earlier
-        if rk_issues:
-            st.warning(
-                "Per‑report‑key recipient issues detected above. These may prevent emails from sending correctly:\n\n- "
-                + "\n- ".join(rk_issues),
-                icon="⚠️"
-            )
-        # --- END ADD ---
+            # Surface per-key table issues detected earlier
+            if 'rk_issues' in locals() and rk_issues:
+                st.warning(
+                    "Per‑report‑key recipient issues detected above. These may prevent emails from sending correctly:\n\n- "
+                    + "\n- ".join(rk_issues),
+                    icon="⚠️"
+                )
 
-
-        # --- Save edited defaults to Drive JSON (optional) ---
-        if save_drive_defaults:
-            try:
-                # Ensure we have a user token first
-                creds = load_valid_token(cfg.SCOPES)
-                if not creds:
-                    st.error("Not authenticated. Please complete Google sign‑in first (top of page).")
-                else:
-                    # Drive service
-                    _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-
-                    # What we persist (the fields you asked to move out of Secrets)
-                    drive_defaults = {
-                        "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
-                        "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
-                        "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
-                        "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
-
-                        "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
-                        "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
-
-                        "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
-                        "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
-
-                        "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
-                        "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
-
-                        "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
-                        "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
-
-                        "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
-                        "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
-
-                        "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
-
-                        "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
-
-                        "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
-                        "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
-                        "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT
-                    }
-
-                    # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
-                    # Otherwise we'll upsert a file named 'favtrip_config.json' and return its id.
-                    CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
-                    new_id = save_config_to_drive(
-                        drive,
-                        drive_defaults,
-                        file_id=CONFIG_FILE_ID or None,   # update/pin if set, else upsert by name
-                        # parent_folder_id=None,          # optional: set a folder id to create under
-                    )
-
-                    st.success(f"Saved defaults to Drive config (file id: {new_id}).")
-                    if not CONFIG_FILE_ID:
-                        st.info(
-                            "Tip: add this ID to Streamlit Secrets as `CONFIG_FILE_ID` to pin the same file for all runs:\n"
-                            f"`{new_id}`"
-                        )
-            except Exception as e:
-                st.error(f"Failed to save defaults to Drive: {e}")
-
-        # If user checked "Force Google re-auth for this run", kick them into auth gating first.
-        if cfg.FORCE_REAUTH:
-            clear_token()
-            try:
-                flow, url = start_oauth(cfg.SCOPES, cfg.REDIRECT_PORT)
-                st.session_state.oauth_flow = flow
-                st.session_state.oauth_url = url
-                st.session_state.auth_required = True
-                st.info("Re-auth required for this run. Open the URL shown in the Authentication panel.")
-                _rerun()
-            except Exception as e:
-                st.error(f"Failed to start OAuth: {e}")
-        else:
-            # --- Live run with timer + last log (no full log after completion) ---
-            # Write all logs to last_run.log; overwrite on each run
-            logger = StatusLogger(print_to_console=True, file_path="last_run.log", overwrite=True)
-            result_holder = {"value": None, "error": None}
-
-            def _runner():
+            # Save edited defaults to Drive JSON (optional)
+            if save_drive_defaults:
                 try:
-                    result_holder["value"] = run_pipeline(cfg, logger=logger)
-                # Catch BaseException so SystemExit / KeyboardInterrupt are captured too
-                except BaseException as e:
-                    result_holder["error"] = e
-
-            t0 = time.perf_counter()
-            th = threading.Thread(target=_runner, daemon=True)
-            th.start()
-
-            with st.status("Running pipeline…", expanded=True) as status:
-                timer_ph = st.empty()
-                lastlog_ph = st.empty()
-                while th.is_alive():
-                    elapsed = int(time.perf_counter() - t0)
-                    timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
-                    lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
-                    time.sleep(0.5)
-
-                th.join()
-                elapsed = int(time.perf_counter() - t0)
-                timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
-                lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
-
-                if result_holder["error"]:
-                    st.error(f"Run failed: {result_holder['error']}")
-                    # Optional during debugging: show stack trace (remove later for a cleaner UI)
-                    try:
-                        st.exception(result_holder["error"])
-                    except Exception:
-                        pass
-                    status.update(label="❌ Failed", state="error")
-                else:
-                    result = result_holder["value"]
-                    if result is None:
-                        st.error("Run finished without returning a result. Check logs and inputs (IDs, Drive access).")
-                        status.update(label="⚠️ No result", state="error")
+                    creds = load_valid_token(cfg.SCOPES)
+                    if not creds:
+                        st.error("Not authenticated. Please complete Google sign‑in first (top of page).")
                     else:
-                        st.write("### Outputs")
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Location", result.location)
-                        col2.metric("Timestamp", result.timestamp)
-                        mm = result.elapsed_seconds
-                        col3.metric("Elapsed", f"{mm//3600:02d}:{(mm%3600)//60:02d}:{mm%60:02d}")
+                        _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+                        drive_defaults = {
+                            "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
+                            "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
+                            "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
+                            "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
+                            "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
+                            "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
+                            "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
+                            "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
+                            "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
+                            "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
+                            "TO_RECIPIENTS": cfg.TO_RECIPIENTS,
+                            "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
+                            "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
+                            "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
+                            "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
+                            "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
+                            "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
+                            "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
+                            "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT,
+                        }
 
-                        if getattr(result, "manager_pdf_link", None):
-                            st.success(f"Manager PDF: {result.manager_pdf_link}")
-                        if getattr(result, "full_order_link", None):
-                            st.success(f"Full Order Sheet: {result.full_order_link}")
+                        CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+                        new_id = save_config_to_drive(
+                            drive,
+                            drive_defaults,
+                            file_id=CONFIG_FILE_ID or None,
+                        )
 
-                            
-                        if st.session_state.offer_log_download and os.path.exists("last_run.log"):
-                            with open("last_run.log", "rb") as f:
-                                st.download_button(
-                                    "⬇️ Download full log (last_run.log)",
-                                    f,
-                                    file_name=f"last_run_{result.timestamp}.log",
-                                    mime="text/plain",
-                                    use_container_width=True
-                                )
-                            
+                        st.success(f"Saved defaults to Drive config (file id: {new_id}).")
+                        if not CONFIG_FILE_ID:
+                            st.info(
+                                "Tip: add this ID to Streamlit Secrets as `CONFIG_FILE_ID` to pin the same file for all runs:\n"
+                                f"`{new_id}`"
+                            )
+                except Exception as e:
+                    st.error(f"Failed to save defaults to Drive: {e}")
 
-                        status.update(label="✅ Completed", state="complete")
+            # If forced reauth is requested via config, just clear token and return to auth gate
+            if getattr(cfg, "FORCE_REAUTH", False):
+                clear_token()
+                st.session_state.auth_required = True
+                st.info("Re-auth required for this run. Please sign in again.")
+                _rerun()
+                return
+
+            # Run
+            logger = StatusLogger(print_to_console=True, file_path="last_run.log", overwrite=True)
+            run_pipeline_with_status(cfg, logger)
+
+
+# =========================
+# App Entrypoint
+# =========================
+
+st.set_page_config(page_title="FavTrip Reporting Pipeline", page_icon="🧾", layout="wide")
+st.title("🧾 FavTrip Reporting Pipeline")
+
+cfg = Config.load()
+
+# Handle OAuth redirect (if present in URL)
+handle_oauth_redirect_if_any(cfg)
+
+# Session state defaults
+if "incoming_selected_name" not in st.session_state:
+    st.session_state.incoming_selected_name = None
+if "incoming_uploaded_ok" not in st.session_state:
+    st.session_state.incoming_uploaded_ok = False
+if "offer_log_download" not in st.session_state:
+    st.session_state.offer_log_download = False
+if "auth_checked" not in st.session_state:
+    st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
+    st.session_state.auth_checked = True
+
+# Sidebar (always visible)
+with st.sidebar:
+    render_sidebar()
+
+# Auth gate
+if st.session_state.auth_required:
+    render_auth_panel(cfg)
+else:
+    # Ensure config reflects Drive-based overrides after auth
+    cfg = Config.load()
+    render_run_form(cfg)
