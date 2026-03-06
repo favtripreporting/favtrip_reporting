@@ -253,6 +253,26 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
+st.markdown("""
+<style>
+/* Compact the uploader row to match one text-input line */
+.ft-upload-row { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+.ft-upload-row .stFileUploader {
+  padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
+}
+.ft-upload-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.9rem; font-weight: 600; opacity: 0.8;
+}
+/* Right-align the upload button like the Run button */
+.ft-align-right > div { display: flex; justify-content: flex-end; }
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
 # --- END CSS ---
 # --- END ADD / MERGE ---
 
@@ -469,64 +489,73 @@ if not st.session_state.auth_required:
     # ---- Run Form (Run button top-right) ----
     with st.form("run_form"):
         
-        tl, col_upload, col_run = st.columns([4, 1, 1])
+        tl, gap, col_run = st.columns([4, 1, 1])
 
         with tl:
             st.subheader("Run Options")
             st.caption("Configure email behavior and report keys. Use **Advanced** for IDs/GIDs/timezone.")
 
-        with col_upload:
-            # Compact uploader shown in the header row
-            incoming_file = st.file_uploader(
-                "Upload incoming (xlsx/csv)",
-                type=["xlsx", "csv"],
-                key="incoming_upload",
-                label_visibility="collapsed",
-            )
-            upload_clicked = st.form_submit_button("⬆️ Upload Current Week Sales", help="Please upload the 'Live Sales' report from Modisoft as a XLSX or CSV file" , use_container_width=True)
-
         with col_run:
             submitted = st.form_submit_button("▶️ Run Pipeline", use_container_width=True)
 
+        # ===== Upload row ABOVE Recipients =====
+        st.markdown('<div class="ft-upload-title">Upload Current Week Sales Report</div>', unsafe_allow_html=True)
 
-        # --- Handle "Upload Incoming" within this form ---
+        # Use widths [4, 1, 1] so the rightmost column aligns with the Run button (header used [4, 1])
+        up_col, status_col, upbtn_col = st.columns([4, 1, 1])
+
+        with up_col:
+            st.markdown('<div class="ft-upload-row">', unsafe_allow_html=True)
+            incoming_file = st.file_uploader(
+                "Upload Current Week Sales Report",
+                type=["xlsx", "csv"],
+                key="incoming_upload",
+                label_visibility="collapsed",
+                accept_multiple_files=False,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with status_col:
+            # Show filename & size on one compact line when a file is selected
+            if incoming_file is not None:
+                size_mb = len(incoming_file.getvalue()) / (1024 * 1024)
+                st.caption(f"📄 {incoming_file.name} · {size_mb:.1f} MB")
+            else:
+                st.caption("No file chosen")
+
+        with upbtn_col:
+            st.markdown('<div class="ft-align-right">', unsafe_allow_html=True)
+            upload_clicked = st.form_submit_button("⬆️ Upload Now", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- Handle the upload action ---
         if upload_clicked:
             if not cfg.INCOMING_FOLDER_ID:
-                st.error("Incoming Folder ID is empty. Set it under **Advanced** → **Incoming Folder ID**.")
-            elif not incoming_file:
+                st.error("Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**.")
+            elif incoming_file is None:
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
                     drive = _get_drive_service_or_raise(cfg)
-
-                    # Prepare metadata
                     media_mime = _infer_media_mime(incoming_file.name)
-                    # Name for the converted Google Sheet (extension not needed)
-                    # Keeping the original base name helps with traceability
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
-
-                    # Read bytes and upload with conversion to Google Sheets
-                    data_bytes = incoming_file.getvalue()
                     created = upload_to_drive(
                         drive,
-                        data=data_bytes,
+                        data=incoming_file.getvalue(),
                         name=nice_name,
                         mime=media_mime,
                         folder_id=cfg.INCOMING_FOLDER_ID,
-                        to_sheet=True,  # <-- crucial: ensures Google Sheet so it is discoverable
+                        to_sheet=True,  # convert so find_latest_sheet sees it
                     )
-
                     link = created.get("webViewLink", "")
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
                         st.link_button("Open uploaded Sheet", link, use_container_width=True)
-
-                    st.caption(
-                        "This will be treated as the latest incoming report on the next run."
-                    )
+                    st.caption("This will be treated as the latest incoming report on the next run.")
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
+        
 
         # --- Main options ---
         # --- REPLACE your current recipients/keys/email-behavior sections with this ---
