@@ -22,7 +22,7 @@ from .sheets_utils import (
 from .drive_utils import find_latest_sheet, upload_to_drive
 from .gmail_utils import send_email, email_manager_report
 
-XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+CSV_MIME = "text/csv"
 
 
 def clean_tag(s: str) -> str:
@@ -35,77 +35,10 @@ from openpyxl import Workbook
 
 
 def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
-   
-    fmt = (fmt or "").lower()
-
-    # Non-xlsx: passthrough to export endpoint (keeps your old behavior for CSV/PDF/etc.)
-    if fmt != "xlsx":
-        export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export"
-        params = {"format": fmt}
-        if gid is not None:
-            params["gid"] = str(gid)
-        headers = {"Authorization": f"Bearer {creds.token}"}
-        r = requests.get(export_url, headers=headers, params=params, timeout=120)
-        r.raise_for_status()
-        return r.content
-
-    # Robust .xlsx values-only path using Sheets API
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format={fmt}&gid={gid}"
     headers = {"Authorization": f"Bearer {creds.token}"}
-    base = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
-
-    # 1) Resolve gid -> sheet title
-    meta_params = {"fields": "sheets(properties(sheetId,title))"}
-    meta_resp = requests.get(base, headers=headers, params=meta_params, timeout=60)
-    meta_resp.raise_for_status()
-    meta = meta_resp.json()
-
-    target_sheet = None
-    target_gid = int(gid)
-    for s in meta.get("sheets", []):
-        props = s.get("properties", {})
-        if props.get("sheetId") == target_gid:
-            target_sheet = props
-            break
-
-    if not target_sheet:
-        raise ValueError(f"No sheet found with gid={gid} in spreadsheet {spreadsheet_id}")
-
-    sheet_title = target_sheet.get("title", f"Sheet_{target_gid}")
-
-    # 2) Fetch evaluated values for the whole sheet
-    #    Use FORMATTED_VALUE so dates/numbers appear as users see them.
-    #    If you want raw numeric types, change to UNFORMATTED_VALUE and adjust date handling.
-    def _quote_sheet_name(name: str) -> str:
-        # A1 ranges require single quotes for names with spaces/special chars; escape single quotes.
-        return f"'{name.replace(\"'\", \"''\")}'"
-
-    range_a1 = _quote_sheet_name(sheet_title)  # full used range of the sheet
-    values_params = {
-        "valueRenderOption": "FORMATTED_VALUE",
-        "dateTimeRenderOption": "FORMATTED_STRING",
-        "majorDimension": "ROWS",
-    }
-    values_resp = requests.get(f"{base}/values/{range_a1}", headers=headers, params=values_params, timeout=120)
-    values_resp.raise_for_status()
-    values_json = values_resp.json()
-    rows = values_json.get("values", [])  # list[list[str|num|bool]]
-
-    # 3) Write a clean .xlsx with values only (no formulas)
-    wb = Workbook(write_only=True)
-    # Excel sheet names must be <= 31 chars
-    safe_title = (sheet_title or "Sheet")[:31]
-    ws = wb.create_sheet(title=safe_title)
-
-    # Append rows (streaming). Missing trailing cells are left blank.
-    for r in rows:
-        # Normalize empty strings to None where appropriate (optional).
-        # Leaving as-is preserves visual output (blank cells remain blank).
-        ws.append(r)
-
-    # Save to bytes
-    out = BytesIO()
-    wb.save(out)
-    return out.getvalue()
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
@@ -210,14 +143,14 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded Manager PDF: {manager_link}")
 
-    # Step 4B: Master Order XLSX
+    # Step 4B: Master Order CSV
     if logger:
-        logger.info("Exporting Master Order (XLSX)…")
-    master_xlsx_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "xlsx")
+        logger.info("Exporting Master Order (CSV)…")
+    master_csv_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "csv")
 
-    # Step 4C: Full order upload (XLSX) and export (PDF)
-    full_xlsx_name = f"Order_Report_{ts}_{location}_FULL.xlsx"
-    full_created = upload_to_drive(drive_svc, master_xlsx_bytes, full_xlsx_name, XLSX_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
+    # Step 4C: Full order upload (CSV) and export (PDF)
+    full_csv_name = f"Order_Report_{ts}_{location}_FULL.csv"
+    full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
     full_gid = first_gid(sheets_svc, full_file_id)
     full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
@@ -225,17 +158,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
-    # Step 4D: Create per-report-key outputs (XLSX) and email
+    # Step 4D: Create per-report-key outputs (CSV) and email
 
-    # --- Parse the master XLSX into rows of dicts ---
-    wb = load_workbook(filename=BytesIO(master_xlsx_bytes), read_only=True, data_only=True)
+    # --- Parse the master CSV into rows of dicts ---
+    wb = load_workbook(filename=BytesIO(master_csv_bytes), read_only=True, data_only=True)
     ws = wb.active  # or specify a sheet name if needed
     rows_iter = ws.iter_rows(values_only=True)
 
     # Header row
     headers = next(rows_iter, None)
     if not headers:
-        raise RuntimeError("XLSX has no header.")
+        raise RuntimeError("CSV has no header.")
 
     headers = [str(h).strip() if h is not None else "" for h in headers]
     report_col = next((h for h in headers if h and h.lower() == "report_key"), None)
@@ -257,7 +190,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if not cfg.USE_ALL_REPORT_KEYS and key.upper() not in (cfg.REPORT_KEY_RUN_LIST or []):
             continue
 
-        # Build a per-key XLSX in memory
+        # Build a per-key CSV in memory
         out_wb = Workbook(write_only=True)
         out_ws = out_wb.create_sheet("Sheet1")
         out_ws.append(headers)
@@ -266,13 +199,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
         bio = BytesIO()
         out_wb.save(bio)
-        key_xlsx_bytes = bio.getvalue()
+        key_csv_bytes = bio.getvalue()
 
         tag = clean_tag(key.upper())
-        xlsx_name = f"Order_Report_{ts}_{location}_{tag}.xlsx"
+        csv_name = f"Order_Report_{ts}_{location}_{tag}.csv"
 
-        # Upload XLSX to Drive; set to_sheet=True so Drive converts to Google Sheet (needed for your PDF export + link)
-        created = upload_to_drive(drive_svc, key_xlsx_bytes, xlsx_name, XLSX_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True) 
+        # Upload CSV to Drive; set to_sheet=True so Drive converts to Google Sheet (needed for your PDF export + link)
+        created = upload_to_drive(drive_svc, key_csv_bytes, csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True) 
         file_id = created["id"]
         gid = first_gid(sheets_svc, file_id)
 

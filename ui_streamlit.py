@@ -316,7 +316,7 @@ def render_run_form(cfg):
 
         # Gate: require successful upload only if a new file is currently selected but not uploaded
         if not file_selected:
-            run_disabled = False
+            run_disabled = True
         elif file_selected and not st.session_state.get("incoming_uploaded_ok", False):
             run_disabled = True
         else:
@@ -646,20 +646,23 @@ def render_run_form(cfg):
                                 st.success(f"Full Order Sheet: {result.full_order_link}")
 
                                 
-                            if st.session_state.offer_log_download and os.path.exists("last_run.log"):
+                            if os.path.exists("last_run.log"):
                                 with open("last_run.log", "rb") as f:
-                                    st.download_button(
-                                        "⬇️ Download full log (last_run.log)",
-                                        f,
-                                        file_name=f"last_run_{result.timestamp}.log",
-                                        mime="text/plain",
-                                        use_container_width=True
-                                    )
-                                
+                                    st.session_state["last_run_log"] = f.read()
+                                    st.session_state["last_run_timestamp"] = result.timestamp
 
                             status.update(label="✅ Completed", state="complete")
-            
-    # 🔚 CLOSE the run card wrapper (ALWAYS close after the form block)
+
+                            
+    if "last_run_log" in st.session_state:
+        st.download_button(
+            "⬇️ Download full log (last_run.log)",
+            st.session_state["last_run_log"],
+            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+            mime="text/plain",
+            use_container_width=True
+        )
+
 
 
 # =========================
