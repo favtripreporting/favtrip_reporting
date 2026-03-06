@@ -288,6 +288,7 @@ def render_run_form(cfg):
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
                     st.session_state.incoming_selected_name = None
+                    run_disabled = False
 
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
@@ -653,7 +654,7 @@ def render_run_form(cfg):
 
                             status.update(label="✅ Completed", state="complete")
 
-                            
+
     if "last_run_log" in st.session_state:
         st.download_button(
             "⬇️ Download full log (last_run.log)",
