@@ -260,5 +260,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-#cd C:\Users\rjrul\Downloads\favtrip_pipeline\documentation\
-#python generate_code_bundle.py
+#cd "C:\Users\rjrul\OneDrive - University of Iowa\000 Current Semester\004 BAIS 4150 BAIS Capstone\favtrip_reporting"
+#python documentation/generate_code_bundle.py

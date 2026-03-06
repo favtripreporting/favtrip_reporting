@@ -8,6 +8,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 
+from io import BytesIO
+from openpyxl import load_workbook, Workbook
+
+
 from .config import Config
 from .google_client import get_credentials, services
 from .sheets_utils import (
@@ -16,6 +20,8 @@ from .sheets_utils import (
 )
 from .drive_utils import find_latest_sheet, upload_to_drive
 from .gmail_utils import send_email, email_manager_report
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def clean_tag(s: str) -> str:
@@ -132,14 +138,14 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded Manager PDF: {manager_link}")
 
-    # Step 4B: Master Order CSV
+    # Step 4B: Master Order XLSX
     if logger:
-        logger.info("Exporting Master Order (CSV)…")
-    master_csv_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "csv")
+        logger.info("Exporting Master Order (XLSX)…")
+    master_xlsx_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "xlsx")
 
-    # Step 4C: Full order upload (CSV) and export (PDF)
-    full_csv_name = f"Order_Report_{ts}_{location}_FULL.csv"
-    full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, "text/csv", cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
+    # Step 4C: Full order upload (XLSX) and export (PDF)
+    full_xlsx_name = f"Order_Report_{ts}_{location}_FULL.xlsx"
+    full_created = upload_to_drive(drive_svc, master_xlsx_bytes, full_xlsx_name, XLSX_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
     full_gid = first_gid(sheets_svc, full_file_id)
     full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
@@ -147,33 +153,58 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
-    # Step 4D: Create per-report-key outputs and email
-    text = master_csv_bytes.decode("utf-8", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        raise RuntimeError("CSV has no header.")
-    report_col = next((h for h in reader.fieldnames if h.lower() == "report_key"), None)
+    # Step 4D: Create per-report-key outputs (XLSX) and email
+
+    # --- Parse the master XLSX into rows of dicts ---
+    wb = load_workbook(filename=BytesIO(master_xlsx_bytes), read_only=True, data_only=True)
+    ws = wb.active  # or specify a sheet name if needed
+    rows_iter = ws.iter_rows(values_only=True)
+
+    # Header row
+    headers = next(rows_iter, None)
+    if not headers:
+        raise RuntimeError("XLSX has no header.")
+
+    headers = [str(h).strip() if h is not None else "" for h in headers]
+    report_col = next((h for h in headers if h and h.lower() == "report_key"), None)
     if not report_col:
         raise RuntimeError("Report_Key column missing.")
-    rows = list(reader)
-    groups = {}
+
+    # Materialize rows as list[dict]
+    rows = []
+    for r in rows_iter:
+        rows.append({headers[i]: (r[i] if i < len(r) else None) for i in range(len(headers))})
+
+    # Group by report key
+    groups: dict[str, list[dict]] = {}
     for r in rows:
-        key = (r.get(report_col) or "").strip() or "UNASSIGNED"
+        key = (str(r.get(report_col) or "").strip()) or "UNASSIGNED"
         groups.setdefault(key, []).append(r)
 
     for key, key_rows in groups.items():
         if not cfg.USE_ALL_REPORT_KEYS and key.upper() not in (cfg.REPORT_KEY_RUN_LIST or []):
             continue
-        csv_buf = io.StringIO()
-        w = csv.DictWriter(csv_buf, fieldnames=reader.fieldnames, lineterminator="")
-        w.writeheader()
-        w.writerows(key_rows)
-        key_bytes = csv_buf.getvalue().encode("utf-8")
+
+        # Build a per-key XLSX in memory
+        out_wb = Workbook(write_only=True)
+        out_ws = out_wb.create_sheet("Sheet1")
+        out_ws.append(headers)
+        for rr in key_rows:
+            out_ws.append([rr.get(h) for h in headers])
+
+        bio = BytesIO()
+        out_wb.save(bio)
+        key_xlsx_bytes = bio.getvalue()
+
         tag = clean_tag(key.upper())
-        filename = f"Order_Report_{ts}_{location}_{tag}.csv"
-        created = upload_to_drive(drive_svc, key_bytes, filename, "text/csv", cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
+        xlsx_name = f"Order_Report_{ts}_{location}_{tag}.xlsx"
+
+        # Upload XLSX to Drive; set to_sheet=True so Drive converts to Google Sheet (needed for your PDF export + link)
+        created = upload_to_drive(drive_svc, key_xlsx_bytes, xlsx_name, XLSX_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True) 
         file_id = created["id"]
         gid = first_gid(sheets_svc, file_id)
+
+        # Export the Google Sheet as PDF (unchanged behavior)
         pdf = export_sheet(creds, file_id, gid, "pdf")
         pdfname = f"Order_Report_{ts}_{location}_{tag}.pdf"
 
@@ -196,11 +227,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         msg["To"] = ", ".join(recipients)
         if cfg.CC_RECIPIENTS:
             msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
+
+        # Keep the Google Sheet link; PDF remains the attached artifact
         msg.set_content(
-            f"Hi {key} team,\nYour order report is ready. \nGoogle Sheet: {created.get('webViewLink')}\nAttached: {pdfname}\n—Automated")
+            f"Hi {key} team,\nYour order report is ready. \n"
+            f"Google Sheet: {created.get('webViewLink')}\n"
+            f"Attached: {pdfname}\n—Automated"
+        )
         msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=pdfname)
         if cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL:
             msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
+
         send_email(gmail_svc, "me", msg)
         if logger:
             logger.info(f"Emailed {tag}")
