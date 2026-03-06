@@ -333,7 +333,6 @@ def render_run_form(cfg):
     # RUN FORM CARD
     # =========================
     # When upload is OK, make the Run button green by adding .ft-run-green to the page segment
-    run_form_wrapper_classes = "ft-card ft-row"
     if st.session_state.get("incoming_uploaded_ok", False):
         run_form_wrapper_classes += " ft-run-green"
 
