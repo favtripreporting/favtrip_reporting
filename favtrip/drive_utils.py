@@ -4,6 +4,11 @@ from datetime import datetime, timedelta, timezone
 from googleapiclient.http import MediaIoBaseUpload
 
 
+def _drive_q_escape(value: str) -> str:
+    """Escape a literal for Google Drive v3 'q' strings."""
+    # Order matters: escape backslashes first, then single quotes.
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
 def find_latest_sheet(drive_svc, folder_id: str):
     q = (
         f"'{folder_id}' in parents and "
@@ -77,11 +82,13 @@ def find_sheet_by_name(drive_svc, folder_id: str, name: str):
     """
     Return the most-recently-created Google Sheet in folder_id with exact name, or None.
     """
+    
     q = (
         f"'{folder_id}' in parents and "
-        f"name = '{name.replace(\"'\", \"\\'\")}' and "
-        "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+        f"name = '{_drive_q_escape(name)}' and "
+        "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
     )
+    
     resp = drive_svc.files().list(
         q=q,
         orderBy="createdTime desc",
