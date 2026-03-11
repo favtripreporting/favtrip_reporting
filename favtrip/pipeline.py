@@ -274,6 +274,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     user_calc_sheet_id = None
     master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+    if logger:
+        logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
@@ -292,6 +294,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                     logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
                 
                 user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+                if logger:
+                    logger.info(f"User Update Time: {user_update_time}")
 
                 if master_update_time > user_update_time:
                     if logger:
