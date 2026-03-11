@@ -232,7 +232,8 @@ def render_run_form(cfg):
     # =========================
     
     with st.container(border=True):
-        st.subheader("Upload Current Week Sales Report")
+        st.subheader("Upload Live Items Report")
+        st.caption("Please upload a live items report from Modisoft. The report must either be 1 or 2 full weeks of data.")
         # Use the SAME column grid as the run form header: [4, 1, 1]
         up_col, _, upbtn_col = st.columns([4, 1, 1])
 
@@ -241,7 +242,7 @@ def render_run_form(cfg):
                 "Upload Current Week Sales Report",
                 type=["xlsx", "csv"],
                 key=uploader_key,
-                help="Please upload the current week's 'Live Items Report' from Modisoft as an XLSX or CSV file.",
+                help="Please upload the current 'Live Items Report' from Modisoft as an XLSX or CSV file.",
                 label_visibility="collapsed",
                 accept_multiple_files=False,
             )
@@ -907,6 +908,7 @@ if st.session_state.auth_required:
                     "- If you renamed your Streamlit app or URL, ensure the Google OAuth "
                     "Authorized redirect URI matches exactly (including trailing slash)."
                 )
+            st.stop()
 
 # Optional lock if invalid incoming file was detected
 locked = st.session_state.get("incoming_locked", False)
