@@ -71,3 +71,34 @@ def cleanup_folder_by_age(drive, folder_id: str, days: int, logger=None):
             break
 
     return trashed
+
+
+def find_sheet_by_name(drive_svc, folder_id: str, name: str):
+    """
+    Return the most-recently-created Google Sheet in folder_id with exact name, or None.
+    """
+    q = (
+        f"'{folder_id}' in parents and "
+        f"name = '{name.replace(\"'\", \"\\'\")}' and "
+        "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+    )
+    resp = drive_svc.files().list(
+        q=q,
+        orderBy="createdTime desc",
+        pageSize=1,
+        fields="files(id,name,createdTime,webViewLink)"
+    ).execute()
+    files = resp.get("files", [])
+    return files[0] if files else None
+
+def copy_file_to_folder(drive_svc, src_file_id: str, dest_folder_id: str, new_name: str):
+    """
+    Copy a Drive file (e.g., Google Spreadsheet) into a folder with a new name.
+    Returns the created file resource (id, name, webViewLink).
+    """
+    body = {"name": new_name, "parents": [dest_folder_id]}
+    return drive_svc.files().copy(
+        fileId=src_file_id,
+        body=body,
+        fields="id,name,mimeType,webViewLink"
+    ).execute()
