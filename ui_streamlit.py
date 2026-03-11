@@ -380,9 +380,9 @@ def render_run_form(cfg):
                 help="Used when 'Use all keys' is OFF. Example: COFFEE,GROCERY"
             )
 
-        # Email Behavior
-        st.markdown("##### Email Behavior")
-        cole1, cole2, cole3 = st.columns([1, 1, 1])
+        # General Behavior
+        st.markdown("##### General Behavior")
+        cole1, cole2, cole3, cole4 = st.columns([1, 1, 1, 1])
         with cole1:
             include_full = st.toggle(
                 "Attach FULL order in each email",
@@ -399,6 +399,12 @@ def render_run_form(cfg):
                 value=getattr(cfg, "EMAIL_MANAGER_REPORT", True),
                 help="When ON, the Manager Report email is sent. When OFF, it is skipped."
             )
+        with cole4:
+            use_rollover = st.toggle(
+                    'Use automatic rollover if only 1 week is uploaded',
+                    value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
+                    help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
+                )
 
         # Per‑Report‑Key Recipients
         with st.expander("Per‑Report‑Key Recipients (optional)", expanded=False):
@@ -430,6 +436,7 @@ def render_run_form(cfg):
             with ga1:
                 calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
                 mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
+                user_folder = st.text_input("User Calculations Folder ID", value=cfg.USER_FOLDER_ID)
             with ga2:
                 incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
@@ -442,6 +449,7 @@ def render_run_form(cfg):
             with gb2:
                 gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
                 loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
+                update_range = st.text_input("Update Timestamp Range", value=cfg.TEMPLATE_UPDATE_RANGE)
 
             st.markdown("##### Time & OAuth")
             gc1, gc2 = st.columns([1, 1])
@@ -473,11 +481,6 @@ def render_run_form(cfg):
 
             with gc2:                                
                 # --- New advanced intake settings ---
-                use_rollover = st.toggle(
-                    'Use automatic rollover if only 1 week is uploaded',
-                    value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
-                    help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
-                )
                 _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
                 start_dow = st.selectbox(
                     "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
@@ -510,12 +513,14 @@ def render_run_form(cfg):
             cfg.INCOMING_FOLDER_ID = incoming_id
             cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
             cfg.ORDER_REPORT_FOLDER_ID = order_folder
+            cfg.USER_FOLDER_ID = user_folder
             cfg.REDIRECT_PORT = int(redirect_port)
 
             cfg.GID_MANAGER_PDF = gid_mgr
             cfg.GID_ORDER_CSV = gid_order
             cfg.LOCATION_SHEET_TITLE = loc_sheet
             cfg.LOCATION_NAMED_RANGE = loc_range
+            cfg.TEMPLATE_UPDATE_RANGE = update_range
             cfg.TIMESTAMP_TZ = tz
             cfg.TIMESTAMP_FMT = tfmt
             
@@ -586,12 +591,14 @@ def render_run_form(cfg):
                             "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
                             "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
                             "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
+                            "USER_FOLDER_ID": cfg.USER_FOLDER_ID,
 
                             "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
                             "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
 
                             "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
                             "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
+                            "TEMPLATE_UPDATE_RANGE": cfg.TEMPLATE_UPDATE_RANGE,
 
                             "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
                             "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
