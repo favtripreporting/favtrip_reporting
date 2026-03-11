@@ -678,7 +678,8 @@ def render_run_form(cfg):
                     lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
 
                     if result_holder["error"]:
-                        global file_error = result_holder["error"]
+                        global file_error 
+                        file_error = result_holder["error"]
                         st.error(f"Run failed: {result_holder['error']}")
                         # Optional during debugging: show stack trace (remove later for a cleaner UI)
                         try:
