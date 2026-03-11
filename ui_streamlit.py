@@ -677,6 +677,7 @@ def render_run_form(cfg):
                     lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
 
                     if result_holder["error"]:
+                        e = result_holder["error"]
                         st.error(f"Run failed: {result_holder['error']}")
                         # Optional during debugging: show stack trace (remove later for a cleaner UI)
                         try:
@@ -907,8 +908,8 @@ if st.session_state.auth_required:
 # Optional lock if invalid incoming file was detected
 locked = st.session_state.get("incoming_locked", False)
 if locked:
-    st.error("The most recent uploaded file is not a valid 1- or 2-week report for the selected start/end days. Upload a new file to the Incoming folder, then click **Re-check Incoming**.")
-    if st.button("Re-check Incoming", type="secondary"):
+    st.error(str(e))
+    if st.button("Retry", type="secondary"):
         st.session_state["incoming_locked"] = False
         _rerun()
     st.stop()

@@ -179,11 +179,13 @@ def _check_week_boundaries(unique_dates, start_dow, end_dow):
     earliest, latest = unique_dates[0], unique_dates[-1]
     s_ok = (_DOW_MAP[start_dow] is None) or (earliest.weekday() == _DOW_MAP[start_dow])
     e_ok = (_DOW_MAP[end_dow]   is None) or (latest.weekday()   == _DOW_MAP[end_dow])
+    error_text = None
     if not (s_ok and e_ok):
+        error_text = f"Please only upload 1 or 2 full weeks of data. The first day of week included in the report should be {start_dow} and the last day of week included in the report should be {end_dow}"
         raise IncomingDataValidationError(
-            f"Please only upload 1 or 2 full weeks of data. The first day of week included in the report should be {start_dow} and the last day of week included in the report should be {end_dow}"
+            error_text
         )
-    return earliest, latest
+    return earliest, latest, error_text
 
 def _plan_weeks(unique_dates):
     """
@@ -295,7 +297,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
 
-    _ = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
+    check_outputs = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
     plan_kind, plan_payload = _plan_weeks(unique_dates)
 
     # Step 2: prep calculations workbook (branch by plan)
