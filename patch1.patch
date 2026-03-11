@@ -1,0 +1,178 @@
+--- a/ui_streamlit.py
++++ b/ui_streamlit.py
+@@ -147,6 +147,10 @@ def render_run_form(cfg):
+-    err = None
++    err = None
++    # Initialize error/success flow flags
++    if "freeze_after_error" not in st.session_state:
++        st.session_state.freeze_after_error = False
++    if "pending_post_success_reset" not in st.session_state:
++        st.session_state.pending_post_success_reset = False
+ 
+     # --- STATE INIT ---
+     if "incoming_uploader_version" not in st.session_state:
+@@ -181,7 +185,11 @@ def render_run_form(cfg):
+         upload_clicked = st.button(
+             "⬆️ Upload Now",
+             use_container_width=True,
+-            disabled=(not file_selected),
++            # Freeze the Upload button during the "frozen" error state.
++            # (User will click "Retry" after the form, which resets and then
++            # enables selecting a NEW file and uploading it.)
++            disabled=(not file_selected) or st.session_state.get("freeze_after_error", False),
+             type="primary",
+             key="upload_submit",
+         )
+@@ -232,8 +240,12 @@ def render_run_form(cfg):
+         had_ok = st.session_state.get("incoming_uploaded_ok", False)
+         run_enabled = (had_ok and not file_selected)
+-        run_disabled = not run_enabled
++        # Freeze Run button if we're in a frozen error state
++        run_disabled = (not run_enabled) or st.session_state.get("freeze_after_error", False)
+ 
+         with col_run:
+             # Right-align and full-width, matching Upload Now
+             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
+             submitted = st.form_submit_button(
+                 "▶️ Run Pipeline",
+                 use_container_width=True,
+                 disabled=run_disabled,
+                 type="primary",
+                 key="run_submit"
+             )
+             st.markdown('</div>', unsafe_allow_html=True)
+@@ -454,34 +466,54 @@ def render_run_form(cfg):
+             th.join()
+             elapsed = int(time.perf_counter() - t0)
+             timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
+             lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
+-            if result_holder["error"]:
+-                err = result_holder["error"]
+-                st.error(f"Run failed: {result_holder['error']}")
+-                try:
+-                    st.exception(result_holder["error"])
+-                except Exception:
+-                    pass
+-                status.update(label="❌ Failed", state="error")
+-            else:
++            if result_holder["error"]:
++                err = result_holder["error"]
++                err_s = str(err).lower()
++                # Special-case: only 1 or 2 full weeks error -> minimal lockout UI
++                if "please only upload 1 or 2 full weeks of data" in err_s:
++                    st.session_state["file_error"] = str(err)
++                    st.session_state["incoming_locked"] = True
++                    # Force a truly new upload when the lock is cleared
++                    st.session_state["incoming_selected_name"] = None
++                    st.session_state["incoming_uploaded_ok"] = False
++                    st.session_state["incoming_uploader_version"] = st.session_state.get("incoming_uploader_version", 0) + 1
++                    status.update(label="❌ Failed", state="error")
++                    _rerun()
++                else:
++                    # Keep user on the same UI with the error details in an expander
++                    st.error("Run failed. See details below.")
++                    try:
++                        with st.expander("Error details", expanded=True):
++                            st.exception(err)
++                    except Exception:
++                        pass
++                    status.update(label="❌ Failed", state="error")
++                    # Freeze the UI (disable Upload Now + Run) until user presses 'Retry' after the form
++                    st.session_state["freeze_after_error"] = True
++            else:
+                 result = result_holder["value"]
+                 if result is None:
+                     st.error("Run finished without returning a result. Check logs and inputs (IDs, Drive access).")
+                     status.update(label="⚠️ No result", state="error")
+                 else:
+                     st.write("### Outputs")
+                     col1, col2, col3 = st.columns(3)
+                     col1.metric("Location", result.location)
+                     col2.metric("Timestamp", result.timestamp)
+                     mm = result.elapsed_seconds
+                     col3.metric("Elapsed", f"{mm//3600:02d}:{(mm%3600)//60:02d}:{mm%60:02d}")
+                     if getattr(result, "manager_pdf_link", None):
+                         st.success(f"Manager PDF: {result.manager_pdf_link}")
+                     if getattr(result, "full_order_link", None):
+                         st.success(f"Full Order Sheet: {result.full_order_link}")
+                     if os.path.exists("last_run.log"):
+                         with open("last_run.log", "rb") as f:
+                             st.session_state["last_run_log"] = f.read()
+                             st.session_state["last_run_timestamp"] = result.timestamp
+-                    st.session_state.incoming_uploaded_ok = False
+-                    st.session_state.incoming_uploader_version += 1
+-                    st.session_state.incoming_selected_name = None
+                     status.update(label="✅ Completed", state="complete")
+-                    time.sleep(10)
+-                    _rerun()
++                    # Defer the reset/rerun by 10s to match the requested UX
++                    st.session_state["pending_post_success_reset"] = True
+@@ -489,13 +521,6 @@ def render_run_form(cfg):
+-        # keep for display across reruns
+-        if '"Please only upload 1 or 2 full weeks of data' in str(err):
+-            st.session_state["file_error"] = str(err)
+-            st.session_state["incoming_locked"] = True
+-            st.error(f"Run failed: {result_holder['error']}")
+-            if st.button("Retry", type="secondary"):
+-                _rerun()
+         st.markdown('</div>', unsafe_allow_html=True)
+ 
+-        if "last_run_log" in st.session_state:
+-            st.download_button(
+-                "⬇️ Download full log (last_run.log)",
+-                st.session_state["last_run_log"],
+-                file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+-                mime="text/plain",
+-                use_container_width=True
+-            )
+-            time.sleep(10)
+-            _rerun()
++        if "last_run_log" in st.session_state and st.session_state.get("offer_log_download", False):
++            st.download_button(
++                "⬇️ Download full log (last_run.log)",
++                st.session_state["last_run_log"],
++                file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
++                mime="text/plain",
++                use_container_width=True
++            )
+ 
++    # --- Post-form controls ---
++    # 1) Show 'Retry' AFTER the form when frozen by a non-upload-weeks error.
++    if st.session_state.get("freeze_after_error", False):
++        st.divider()
++        if st.button("Retry", key="retry_after_error", type="primary"):
++            # Reset the form and require a new upload
++            st.session_state["freeze_after_error"] = False
++            st.session_state["incoming_selected_name"] = None
++            st.session_state["incoming_uploaded_ok"] = False
++            st.session_state["incoming_uploader_version"] = st.session_state.get("incoming_uploader_version", 0) + 1
++            _rerun()
++
++    # 2) Single-shot delayed reset after a successful run
++    if st.session_state.get("pending_post_success_reset", False):
++        with st.status("Resetting for the next run in 10 seconds…", expanded=False):
++            time.sleep(10)
++        # Now lock until a new file is uploaded
++        st.session_state["pending_post_success_reset"] = False
++        st.session_state["incoming_selected_name"] = None
++        st.session_state["incoming_uploaded_ok"] = False
++        st.session_state["incoming_uploader_version"] = st.session_state.get("incoming_uploader_version", 0) + 1
++        _rerun()
+ 
+@@ -585,10 +610,16 @@ locked = st.session_state.get("incoming_locked", False)
+ if locked:
+     err_msg = st.session_state.get("file_error", "An unknown error occurred.")
+     st.error(err_msg)
+     if st.button("Retry", type="secondary"):
+-        st.session_state["incoming_locked"] = False
++        # Unlock and force a fresh upload
++        st.session_state["incoming_locked"] = False
++        st.session_state["incoming_selected_name"] = None
++        st.session_state["incoming_uploaded_ok"] = False
++        st.session_state["incoming_uploader_version"] = st.session_state.get("incoming_uploader_version", 0) + 1
+         _rerun()
+     st.stop()
+ else:
+     # Ensure config reflects Drive-based overrides after auth
+     cfg = Config.load()
+     render_run_form(cfg)
