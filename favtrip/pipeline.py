@@ -273,44 +273,43 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
     user_calc_sheet_id = None
-        calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
+    calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
+    try:
+        me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
+        user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+        # If you prefer a stable opaque id instead of email for file names:
+        # user_id_for_name = (me or {}).get("permissionId") or user_email
+        user_id_for_name = user_email
 
-        try:
-            me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
-            user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
-            # If you prefer a stable opaque id instead of email for file names:
-            # user_id_for_name = (me or {}).get("permissionId") or user_email
-            user_id_for_name = user_email
-
-            if cfg.USER_FOLDER_ID:
+        if cfg.USER_FOLDER_ID:
+            if logger:
+                logger.info(f"Looking for per-user calc sheet in USER_FOLDER_ID for: {user_id_for_name}")
+            found = find_sheet_by_name(drive_svc, cfg.USER_FOLDER_ID, user_id_for_name)
+            if found:
+                user_calc_sheet_id = found["id"]
                 if logger:
-                    logger.info(f"Looking for per-user calc sheet in USER_FOLDER_ID for: {user_id_for_name}")
-                found = find_sheet_by_name(drive_svc, cfg.USER_FOLDER_ID, user_id_for_name)
-                if found:
-                    user_calc_sheet_id = found["id"]
-                    if logger:
-                        logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
-                else:
-                    if logger:
-                        logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
-                    created = copy_file_to_folder(
-                        drive_svc,
-                        cfg.CALC_SPREADSHEET_ID,
-                        cfg.USER_FOLDER_ID,
-                        new_name=user_id_for_name,
-                    )
-                    user_calc_sheet_id = created["id"]
-                    if logger:
-                        logger.info(f"Created per-user workbook: {created.get('webViewLink')}")
-
-                # From here on, operate on the per-user workbook
-                calc_ss_id = user_calc_sheet_id
+                    logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
             else:
                 if logger:
-                    logger.info("USER_FOLDER_ID not configured; using CALC_SPREADSHEET_ID directly.")
-        except Exception as e:
+                    logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
+                created = copy_file_to_folder(
+                    drive_svc,
+                    cfg.CALC_SPREADSHEET_ID,
+                    cfg.USER_FOLDER_ID,
+                    new_name=user_id_for_name,
+                )
+                user_calc_sheet_id = created["id"]
+                if logger:
+                    logger.info(f"Created per-user workbook: {created.get('webViewLink')}")
+
+            # From here on, operate on the per-user workbook
+            calc_ss_id = user_calc_sheet_id
+        else:
             if logger:
-                logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
+                logger.info("USER_FOLDER_ID not configured; using CALC_SPREADSHEET_ID directly.")
+    except Exception as e:
+        if logger:
+            logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
     
 
     # Step 1: latest incoming
