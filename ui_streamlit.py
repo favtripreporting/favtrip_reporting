@@ -680,21 +680,14 @@ def render_run_form(cfg):
                     if result_holder["error"]:
                         
                         err = result_holder["error"]
-                        # keep for display across reruns
-                        if '"Please only upload 1 or 2 full weeks of data' in str(err):
-                            st.session_state["file_error"] = str(err)
-                            st.session_state["incoming_locked"] = True
                         
                         st.error(f"Run failed: {result_holder['error']}")
-                        # Optional during debugging: show stack trace (remove later for a cleaner UI)
                         try:
                             st.exception(result_holder["error"])
                         except Exception:
                             pass
                         status.update(label="❌ Failed", state="error")
                         
-                        if st.button("Retry", type="secondary"):
-                            _rerun()
 
                     else:
                         result = result_holder["value"]
@@ -727,6 +720,15 @@ def render_run_form(cfg):
                             status.update(label="✅ Completed", state="complete")
                             time.sleep(10)
                             _rerun()
+
+    # keep for display across reruns
+    if '"Please only upload 1 or 2 full weeks of data' in str(err):
+        st.session_state["file_error"] = str(err)
+        st.session_state["incoming_locked"] = True
+        st.error(f"Run failed: {result_holder['error']}")
+        if st.button("Retry", type="secondary"):
+            _rerun()
+   
 
     st.markdown('</div>', unsafe_allow_html=True)
 
