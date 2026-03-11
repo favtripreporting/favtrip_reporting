@@ -883,6 +883,10 @@ with st.sidebar:
         "Offer full log download after completion",
         key="offer_log_download",
         help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
+    
+    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev")
+
+    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/{cfg.INCOMING_FOLDER_ID}")
 
 # Auth gate
 if st.session_state.auth_required:
