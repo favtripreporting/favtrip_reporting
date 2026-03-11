@@ -463,20 +463,13 @@ def render_run_form(cfg):
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                     help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
-                output_ttl = st.number_input(
-                    "Output Time-To-Life (days)",
-                    min_value=0,
-                    max_value=3650,
-                    value=int(cfg.OUTPUT_TIME_TO_LIFE),
-                    help="Delete Manager/Order report files older than this many days after a successful run."
-                    )
 
-                failed_input_ttl = st.number_input(
-                    "Failed Input Time-To-Life (days)",
+                user_ttl = st.number_input(
+                    "User Calculations Time-To-Life (days)",
                     min_value=0,
                     max_value=3650,
-                    value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
-                    help="Delete old unused incoming files older than this many days."
+                    value=int(cfg.USER_TIME_TO_LIFE),
+                    help="Delete old unused user calculations files older than this many days."
                     )
 
             with gc2:                                
@@ -490,6 +483,20 @@ def render_run_form(cfg):
                     "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
                     help="The day of week that the uploaded data should end at, any other day will raise an error"
                 )
+                failed_input_ttl = st.number_input(
+                    "Failed Input Time-To-Life (days)",
+                    min_value=0,
+                    max_value=3650,
+                    value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
+                    help="Delete old unused incoming files older than this many days."
+                    )
+                output_ttl = st.number_input(
+                    "Output Time-To-Life (days)",
+                    min_value=0,
+                    max_value=3650,
+                    value=int(cfg.OUTPUT_TIME_TO_LIFE),
+                    help="Delete Manager/Order report files older than this many days after a successful run."
+                    )
 
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
@@ -526,6 +533,7 @@ def render_run_form(cfg):
             
             cfg.OUTPUT_TIME_TO_LIFE = int(output_ttl)
             cfg.FAILED_INPUT_TIME_TO_LIFE = int(failed_input_ttl)
+            cfg.USER_TIME_TO_LIFE = int(user_ttl)
 
             cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
             cfg.START_DAY_OF_WEEK = start_dow
@@ -605,6 +613,7 @@ def render_run_form(cfg):
 
                             "OUTPUT_TIME_TO_LIFE": cfg.OUTPUT_TIME_TO_LIFE,
                             "FAILED_INPUT_TIME_TO_LIFE": cfg.FAILED_INPUT_TIME_TO_LIFE,
+                            "USER_TIME_TO_LIFE": cfg.USER_TIME_TO_LIFE,
 
                             "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
                             "CC_RECIPIENTS": cfg.CC_RECIPIENTS,

@@ -112,6 +112,7 @@ class Config:
     # Cleanup
     OUTPUT_TIME_TO_LIFE: int = 30
     FAILED_INPUT_TIME_TO_LIFE: int = 1
+    USER_TIME_TO_LIFE: int = 90
 
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
@@ -141,6 +142,7 @@ class Config:
 
             OUTPUT_TIME_TO_LIFE=int(_get_secret("OUTPUT_TIME_TO_LIFE", 30)),
             FAILED_INPUT_TIME_TO_LIFE=int(_get_secret("FAILED_INPUT_TIME_TO_LIFE", 1)),
+            USER_TIME_TO_LIFE=int(_get_secret("USER_TIME_TO_LIFE", 1)),
 
             TO_RECIPIENTS=_coerce_csv(_get_secret("TO_RECIPIENTS", "")),
             CC_RECIPIENTS=_coerce_csv(_get_secret("CC_RECIPIENTS", "")),
