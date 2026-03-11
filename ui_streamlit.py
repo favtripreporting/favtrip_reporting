@@ -687,6 +687,7 @@ def render_run_form(cfg):
                         
                         if "Please only upload 1 or 2 full weeks of data." in str(result_holder["error"]):
                                 st.session_state["incoming_locked"] = True
+                                _rerun()
 
                     else:
                         result = result_holder["value"]
@@ -730,6 +731,8 @@ def render_run_form(cfg):
             mime="text/plain",
             use_container_width=True
         )
+        time.sleep(10)
+        _rerun()
 
 
 
