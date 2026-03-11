@@ -401,7 +401,7 @@ def render_run_form(cfg):
             )
         with cole4:
             use_rollover = st.toggle(
-                    'Use automatic rollover for single week uploads',
+                    'Use auto-rollover for single week uploads',
                     value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
                     help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
                 )
