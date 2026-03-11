@@ -57,13 +57,21 @@ _DOW_MAP = {
 
 def _parse_sheet_date(cell: str | int | float):
     """
-    Parse a Google Sheets date cell. Accepts strings (e.g., '2026-03-04', '03/04/2026')
-    and serial numbers. Returns datetime.date or None.
+    Parse a Google Sheets date cell into a date (drops time if present).
+    Accepts:
+      - Google serial numbers (days since 1899-12-30)
+      - Date strings: YYYY-MM-DD, MM/DD/YYYY, MM/DD/YY
+      - DateTime strings: with 12h or 24h time, with or without seconds, AM/PM
+      - ISO strings (date or datetime)
+
+    Returns: datetime.date or None if unparseable.
     """
     from datetime import datetime, timedelta
+
     if cell is None or cell == "":
         return None
-    # Numeric -> try Google serial (days since 1899-12-30)
+
+    # --- 1) Numeric serial (Google Sheets) ---
     try:
         if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace(".", "", 1).isdigit()):
             serial = float(cell)
@@ -71,16 +79,65 @@ def _parse_sheet_date(cell: str | int | float):
             return (base + timedelta(days=serial)).date()
     except Exception:
         pass
+
     s = str(cell).strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+
+    # Quick strip for weird whitespace
+    s = " ".join(s.split())
+
+    # If a timezone suffix or trailing text exists, try to isolate the datetime token
+    # (We keep it simple: split on two spaces or take first token that contains '/')
+    if " " in s and "/" in s:
+        # Nothing fancy; the format tries below will accept the full string if they match
+        pass
+
+    # --- 2) Try common datetime formats (12h and 24h), with or without seconds ---
+    dt_formats = [
+        "%m/%d/%Y %I:%M:%S %p",  # 03/01/2026 12:03:45 AM
+        "%m/%d/%Y %I:%M %p",     # 03/01/2026 12:03 AM
+        "%m/%d/%Y %H:%M:%S",     # 03/01/2026 00:03:45
+        "%m/%d/%Y %H:%M",        # 03/01/2026 00:03
+        "%Y-%m-%d %H:%M:%S",     # 2026-03-01 00:03:45
+        "%Y-%m-%d %H:%M",        # 2026-03-01 00:03
+        "%Y-%m-%dT%H:%M:%S",     # 2026-03-01T00:03:45
+        "%Y-%m-%dT%H:%M",        # 2026-03-01T00:03
+    ]
+    for fmt in dt_formats:
         try:
             return datetime.strptime(s, fmt).date()
         except Exception:
             continue
+
+    # --- 3) Try date-only formats ---
+    date_formats = [
+        "%Y-%m-%d",   # 2026-03-01
+        "%m/%d/%Y",   # 03/01/2026
+        "%m/%d/%y",   # 03/01/26
+    ]
+    for fmt in date_formats:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+
+    # --- 4) Last resort: Python ISO parser (handles 'YYYY-MM-DD' and full ISO datetimes) ---
     try:
         return datetime.fromisoformat(s).date()
     except Exception:
-        return None
+        pass
+
+    # --- 5) If still not parsed, try taking only the date token before a space ---
+    try:
+        token = s.split(" ")[0]
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+            try:
+                return datetime.strptime(token, fmt).date()
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return None
 
 def _find_header_and_date_col(values2d):
     """
@@ -233,6 +290,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         )
 
     unique_dates = _collect_unique_dates(values, h_ix, d_cix)
+
+    if logger:
+    logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
+
     _ = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
     plan_kind, plan_payload = _plan_weeks(unique_dates)
 
