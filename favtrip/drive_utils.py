@@ -35,7 +35,7 @@ def _rfc3339(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 def trash_file(drive, file_id: str):
-    return drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+    return drive.files().update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True).execute()
 
 def cleanup_folder_by_age(drive, folder_id: str, days: int, logger=None):
     if days <= 0:
@@ -88,7 +88,7 @@ def find_sheet_by_name(drive_svc, folder_id: str, name: str):
         f"name = '{_drive_q_escape(name)}' and "
         "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
     )
-    
+
     resp = drive_svc.files().list(
         q=q,
         orderBy="createdTime desc",
