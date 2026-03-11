@@ -18,7 +18,8 @@ from .google_client import get_credentials, services
 from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
     get_value, first_gid,
-    get_first_sheet_meta, get_values_2d, delete_rows_range, delete_row_indices, add_blank_sheet
+    get_first_sheet_meta, get_values_2d, add_blank_sheet,
+    add_or_replace_sheet, put_values_2d
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age
 from .gmail_utils import send_email, email_manager_report
@@ -302,28 +303,33 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info("Preparing calculations workbook…")
 
     if plan_kind == "two":
-        # Two weeks → split: oldest 7 -> Last Week; newest 7 -> Current Week
+        # Two weeks → build values in memory and write each in a single call
         if logger:
-            logger.info("Detected 2 weeks; splitting into 'Last Week' (oldest 7) and 'Current Week' (newest 7)")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+            logger.info("Detected 2 weeks; writing 'Last Week' (oldest 7) and 'Current Week' (newest 7) without row deletions")
 
-        # Copy source sheet twice
-        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Last Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        # Source header & body (we already loaded 'values' from the first sheet)
+        header = [str(h) for h in values[h_ix]]
+        body_rows = values[h_ix + 1 :]
 
-        # Find destination sheet IDs
-        dest_meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
-        props = {s["properties"]["title"]: s["properties"]["sheetId"] for s in dest_meta.get("sheets", [])}
+        def _slice_rows(rows, date_cix, keep_dates: set):
+            out = []
+            for row in rows:
+                d = _parse_sheet_date(row[date_cix] if date_cix < len(row) else None)
+                if d and d in keep_dates:
+                    out.append(row)
+            return out
 
-        # Use the source values to know header/date col; then trim & filter each
-        for title, keeps in [("Last Week", plan_payload[0]), ("Current Week", plan_payload[1])]:
-            sid = props[title]
-            _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, sid, values, h_ix)
-            # Re-fetch current values on destination after the trim
-            v2 = get_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, title, "A:Z")
-            # Header is now at row 0, date column index unchanged relative to header
-            _filter_rows_to_dates(sheets_svc, cfg.CALC_SPREADSHEET_ID, sid, v2, 0, d_cix, keeps)
+        keep_oldest7, keep_newest7 = plan_payload  # sets of dates from _plan_weeks
+        last_week_rows = _slice_rows(body_rows, d_cix, keep_oldest7)
+        current_week_rows = _slice_rows(body_rows, d_cix, keep_newest7)
+
+        # Create fresh target sheets
+        add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        # Bulk write (header + rows) → 1 write per sheet
+        put_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week", [header] + last_week_rows)
+        put_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week", [header] + current_week_rows)
 
     elif plan_kind == "one" and cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK:
         # One week + rollover ON → current behavior
