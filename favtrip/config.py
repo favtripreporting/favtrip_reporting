@@ -135,7 +135,7 @@ class Config:
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
-            TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update"))
+            TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),
             TIMESTAMP_TZ=str(_get_secret("TIMESTAMP_TZ", "America/Chicago")),
             TIMESTAMP_FMT=str(_get_secret("TIMESTAMP_FMT", "%Y-%m-%d-%I-%M-%p")),
 
