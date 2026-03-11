@@ -679,9 +679,9 @@ def render_run_form(cfg):
                     if result_holder["error"]:
                         
                         err = result_holder["error"]
-                            # keep for display across reruns
-                            st.session_state["file_error"] = str(err)
-                            st.session_state["incoming_locked"] = True
+                        # keep for display across reruns
+                        st.session_state["file_error"] = str(err)
+                        st.session_state["incoming_locked"] = True
                         
                         st.error(f"Run failed: {result_holder['error']}")
                         # Optional during debugging: show stack trace (remove later for a cleaner UI)
