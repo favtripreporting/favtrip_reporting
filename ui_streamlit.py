@@ -217,6 +217,7 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
 # =========================
 
 def render_run_form(cfg):
+    err = None
     # --- STATE INIT ---
     if "incoming_uploader_version" not in st.session_state:
         st.session_state.incoming_uploader_version = 0
