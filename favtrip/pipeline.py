@@ -292,7 +292,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     unique_dates = _collect_unique_dates(values, h_ix, d_cix)
 
     if logger:
-    logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
+        logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
 
     _ = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
     plan_kind, plan_payload = _plan_weeks(unique_dates)
