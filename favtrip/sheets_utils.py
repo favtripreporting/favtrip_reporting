@@ -42,6 +42,73 @@ def copy_sheet_as(svc, spreadsheet_id: str, src_title: str, new_title: str):
     return new_id
 
 
+def copy_sheet_to_another_spreadsheet(
+    svc,
+    src_spreadsheet_id: str,
+    src_title: str,
+    dest_spreadsheet_id: str,
+    new_title: str | None = None
+) -> int | None:
+    """
+    Copy a sheet (by title) from one Google Sheets spreadsheet to another.
+
+    Args:
+        svc: An authenticated Google Sheets API service (from googleapiclient.discovery.build('sheets','v4', ...)).
+        src_spreadsheet_id: The ID of the source spreadsheet (the file that currently contains the sheet).
+        src_title: The title of the sheet in the source spreadsheet to copy.
+        dest_spreadsheet_id: The ID of the destination spreadsheet (the file to receive the copied sheet).
+        new_title: Optional new title to apply to the copied sheet in the destination.
+
+    Returns:
+        The new sheetId in the destination spreadsheet, or None if the source sheet wasn't found.
+
+    Notes:
+        - The service account or authenticated user must have at least editor access to both spreadsheets.
+        - If new_title is provided and a sheet with that title already exists in the destination,
+          this function will attempt to rename the new sheet to new_title and will not resolve title conflicts.
+    """
+    # Find the source sheet by title
+    src_sheet = get_sheet(list_sheets(svc, src_spreadsheet_id), src_title)
+    if not src_sheet:
+        return None
+
+    # Copy the sheet into the destination spreadsheet
+    copied = (
+        svc.spreadsheets()
+        .sheets()
+        .copyTo(
+            spreadsheetId=src_spreadsheet_id,
+            sheetId=src_sheet["sheetId"],
+            body={"destinationSpreadsheetId": dest_spreadsheet_id}
+        )
+        .execute()
+    )
+
+    new_id = copied.get("sheetId")
+    if not new_id:
+        # Unexpected, but guard just in case
+        return None
+
+    # Optionally rename the newly copied sheet in the destination
+    if new_title:
+        body = {
+            "requests": [
+                {
+                    "updateSheetProperties": {
+                        "properties": {"sheetId": new_id, "title": new_title},
+                        "fields": "title",
+                    }
+                }
+            ]
+        }
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=dest_spreadsheet_id, body=body
+        ).execute()
+
+    return new_id
+
+
+
 def copy_first_sheet_as(svc, src_spreadsheet: str, dest_spreadsheet: str, new_title: str):
     meta = svc.spreadsheets().get(spreadsheetId=src_spreadsheet).execute()
     first_id = meta["sheets"][0]["properties"]["sheetId"]
