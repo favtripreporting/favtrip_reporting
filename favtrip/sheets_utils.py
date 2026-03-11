@@ -176,3 +176,25 @@ def put_values_2d(svc, spreadsheet_id: str, sheet_title: str, values: list[list]
         valueInputOption="USER_ENTERED",
         body={"values": values}
     ).execute()
+
+def _force_column_as_text(header: list[str], rows: list[list], header_name: str) -> list[list]:
+    """
+    For the column matching header_name, coerce every non-blank value to a string
+    prefixed with a single apostrophe, so Google Sheets stores it as text.
+    """
+    idx = None
+    for i, h in enumerate(header):
+        if str(h).strip().lower() == header_name.strip().lower():
+            idx = i
+            break
+    if idx is None:
+        return rows  # header not found; nothing to do
+
+    out = []
+    for r in rows:
+        r2 = list(r)
+        if idx < len(r2) and r2[idx] not in (None, ""):
+            # ensure string and prefix with apostrophe
+            r2[idx] = "'" + str(r2[idx])
+        out.append(r2)
+    return out

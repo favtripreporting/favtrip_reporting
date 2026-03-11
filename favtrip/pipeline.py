@@ -19,7 +19,7 @@ from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
-    add_or_replace_sheet, put_values_2d
+    add_or_replace_sheet, put_values_2d, _force_column_as_text
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age
 from .gmail_utils import send_email, email_manager_report
@@ -326,6 +326,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         # Create fresh target sheets
         add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
         add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        # Force column 'Scan Code' to be text with a prefixed apostrophe
+        last_week_rows = _force_column_as_text(header, last_week_rows, "Scan Code")
+        current_week_rows = _force_column_as_text(header, current_week_rows, "Scan Code")
 
         # Bulk write (header + rows) → 1 write per sheet
         put_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week", [header] + last_week_rows)
