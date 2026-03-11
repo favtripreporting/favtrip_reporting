@@ -173,6 +173,6 @@ def put_values_2d(svc, spreadsheet_id: str, sheet_title: str, values: list[list]
     svc.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
         range=rng,
-        valueInputOption="RAW",
+        valueInputOption="USER_ENTERED",
         body={"values": values}
     ).execute()
