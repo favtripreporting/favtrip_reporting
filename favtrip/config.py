@@ -76,6 +76,7 @@ class Config:
     INCOMING_FOLDER_ID: str
     MANAGER_REPORT_FOLDER_ID: str
     ORDER_REPORT_FOLDER_ID: str
+    USER_FOLDER_ID: str
 
     # GIDs, sheet metadata, timestamp settings
     GID_MANAGER_PDF: str = "1921812573"
@@ -84,6 +85,7 @@ class Config:
     LOCATION_NAMED_RANGE: str = "_locations"
     TIMESTAMP_TZ: str = "America/Chicago"
     TIMESTAMP_FMT: str = "%Y-%m-%d-%I-%M-%p"
+    TEMPLATE_UPDATE_RANGE: str = "_update"
 
     # Email config
     TO_RECIPIENTS: List[str] = None
@@ -110,6 +112,7 @@ class Config:
     # Cleanup
     OUTPUT_TIME_TO_LIFE: int = 30
     FAILED_INPUT_TIME_TO_LIFE: int = 1
+    USER_TIME_TO_LIFE: int = 90
 
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
@@ -127,16 +130,19 @@ class Config:
             INCOMING_FOLDER_ID=str(_get_secret("INCOMING_FOLDER_ID", "")),
             MANAGER_REPORT_FOLDER_ID=str(_get_secret("MANAGER_REPORT_FOLDER_ID", "")),
             ORDER_REPORT_FOLDER_ID=str(_get_secret("ORDER_REPORT_FOLDER_ID", "")),
+            USER_FOLDER_ID=str(_get_secret("USER_FOLDER_ID", "")),
 
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
+            TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),
             TIMESTAMP_TZ=str(_get_secret("TIMESTAMP_TZ", "America/Chicago")),
             TIMESTAMP_FMT=str(_get_secret("TIMESTAMP_FMT", "%Y-%m-%d-%I-%M-%p")),
 
             OUTPUT_TIME_TO_LIFE=int(_get_secret("OUTPUT_TIME_TO_LIFE", 30)),
             FAILED_INPUT_TIME_TO_LIFE=int(_get_secret("FAILED_INPUT_TIME_TO_LIFE", 1)),
+            USER_TIME_TO_LIFE=int(_get_secret("USER_TIME_TO_LIFE", 1)),
 
             TO_RECIPIENTS=_coerce_csv(_get_secret("TO_RECIPIENTS", "")),
             CC_RECIPIENTS=_coerce_csv(_get_secret("CC_RECIPIENTS", "")),

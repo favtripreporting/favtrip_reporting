@@ -19,9 +19,9 @@ from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
-    add_or_replace_sheet, put_values_2d, _force_column_as_text
+    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range
 )
-from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age
+from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder
 from .gmail_utils import send_email, email_manager_report
 
 CSV_MIME = "text/csv"
@@ -257,6 +257,7 @@ class RunResult:
     timestamp: str
     manager_pdf_link: str | None
     full_order_link: str | None
+    user_calc_sheet_id: str | None = None
 
 
 def run_pipeline(cfg: Config, logger=None) -> RunResult:
@@ -269,6 +270,47 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     sheets_svc, drive_svc, gmail_svc = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
     if logger:
         logger.info("Google services ready")
+
+    
+    user_calc_sheet_id = None
+    calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
+    try:
+        me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
+        user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+        # If you prefer a stable opaque id instead of email for file names:
+        # user_id_for_name = (me or {}).get("permissionId") or user_email
+        user_id_for_name = user_email
+
+        if cfg.USER_FOLDER_ID:
+            if logger:
+                logger.info(f"Looking for per-user calc sheet in USER_FOLDER_ID for: {user_id_for_name}")
+            found = find_sheet_by_name(drive_svc, cfg.USER_FOLDER_ID, user_id_for_name)
+            if found:
+                user_calc_sheet_id = found["id"]
+                if logger:
+                    logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
+            else:
+                if logger:
+                    logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
+                created = copy_file_to_folder(
+                    drive_svc,
+                    cfg.CALC_SPREADSHEET_ID,
+                    cfg.USER_FOLDER_ID,
+                    new_name=user_id_for_name,
+                )
+                user_calc_sheet_id = created["id"]
+                if logger:
+                    logger.info(f"Created per-user workbook: {created.get('webViewLink')}")
+
+            # From here on, operate on the per-user workbook
+            calc_ss_id = user_calc_sheet_id
+        else:
+            if logger:
+                logger.info("USER_FOLDER_ID not configured; using CALC_SPREADSHEET_ID directly.")
+    except Exception as e:
+        if logger:
+            logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
+    
 
     # Step 1: latest incoming
     if logger:
@@ -326,57 +368,57 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         current_week_rows = _slice_rows(body_rows, d_cix, keep_newest7)
 
         # Create fresh target sheets
-        add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
-        add_or_replace_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Last Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
 
         # Force column 'Scan Code' to be text with a prefixed apostrophe
         last_week_rows = _force_column_as_text(header, last_week_rows, "Scan Code")
         current_week_rows = _force_column_as_text(header, current_week_rows, "Scan Code")
 
         # Bulk write (header + rows) → 1 write per sheet
-        put_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week", [header] + last_week_rows)
-        put_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week", [header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Last Week", [header] + last_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [header] + current_week_rows)
 
     elif plan_kind == "one" and cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK:
         # One week + rollover ON → current behavior
         if logger:
             logger.info("Detected 1 week; auto-rollover enabled → copying old Current→Last and inserting new Current")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        delete_sheet(sheets_svc, calc_ss_id, "Last Week")
         try:
-            copy_sheet_as(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week", "Last Week")
+            copy_sheet_as(sheets_svc, calc_ss_id, "Current Week", "Last Week")
             if logger:
                 logger.info("Copied old 'Current Week' to 'Last Week'")
         except Exception:
             if logger:
                 logger.warn("No 'Current Week' sheet exists to copy")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
+        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
 
         # Trim header for Current Week
-        meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
+        meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
 
     else:
         # One week + rollover OFF → Current Week only; Last Week blank
         if logger:
             logger.info("Detected 1 week; auto-rollover disabled → Current only, Last Week blank")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
-        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
-        add_blank_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        delete_sheet(sheets_svc, calc_ss_id, "Last Week")
+        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
+        add_blank_sheet(sheets_svc, calc_ss_id, "Last Week")
+        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
 
-        meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
+        meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
 
     # Refresh reference sheets (unchanged)
     if logger:
         logger.info("Refreshing reference sheets (prefix 'REFR: ')…")
-    refresh_sheets_with_prefix(sheets_svc, cfg.CALC_SPREADSHEET_ID, prefix="REFR: ", logger=logger)
+    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix="REFR: ", logger=logger)
 
     # Step 3: read location code
-    location = get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.LOCATION_NAMED_RANGE)
+    location = get_value(sheets_svc, calc_ss_id, cfg.LOCATION_SHEET_TITLE, cfg.LOCATION_NAMED_RANGE)
     ts = timestamp_now(cfg.TIMESTAMP_TZ, cfg.TIMESTAMP_FMT)
     if logger:
         logger.info(f"Location: {location}; Timestamp: {ts}")
@@ -384,7 +426,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4A: Manager Report PDF
     if logger:
         logger.info("Exporting Manager Report (PDF)…")
-    pdf_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_MANAGER_PDF, "pdf")
+    pdf_bytes = export_sheet(creds, calc_ss_id, cfg.GID_MANAGER_PDF, "pdf")
     pdf_name = f"Manager_Report_{ts}_{location}.pdf"
     uploaded_pdf = upload_to_drive(drive_svc, pdf_bytes, pdf_name, "application/pdf", cfg.MANAGER_REPORT_FOLDER_ID, to_sheet=False)
     manager_link = uploaded_pdf.get("webViewLink")
@@ -394,7 +436,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4B: Master Order CSV
     if logger:
         logger.info("Exporting Master Order (CSV)…")
-    master_csv_bytes = export_sheet(creds, cfg.CALC_SPREADSHEET_ID, cfg.GID_ORDER_CSV, "csv")
+    master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
 
     # Step 4C: Full order upload (CSV) and export (PDF)
     full_csv_name = f"Order_Report_{ts}_{location}_FULL.csv"
@@ -567,6 +609,15 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                 drive_svc,
                 folder,
                 cfg.OUTPUT_TIME_TO_LIFE,
+                logger
+            )
+        
+        if logger:
+            logger.info("Cleaning old calculation files…")
+            cleanup_folder_by_age(
+                drive_svc,
+                cfg.USER_FOLDER_ID,
+                cfg.USER_TIME_TO_LIFE,
                 logger
             )
 
