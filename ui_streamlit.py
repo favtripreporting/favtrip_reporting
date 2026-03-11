@@ -451,8 +451,6 @@ def render_run_form(cfg):
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                     help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
-
-            with gc2:                                
                 output_ttl = st.number_input(
                     "Output Time-To-Life (days)",
                     min_value=0,
@@ -468,6 +466,23 @@ def render_run_form(cfg):
                     value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
                     help="Delete old unused incoming files older than this many days."
                     )
+
+            with gc2:                                
+                # --- New advanced intake settings ---
+                use_rollover = st.toggle(
+                    'Use automatic rollover if only 1 week is uploaded',
+                    value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
+                    help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
+                )
+                _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
+                start_dow = st.selectbox(
+                    "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
+                    help="The day of week that the uploaded data should start at, any other day will raise an error"
+                )
+                end_dow = st.selectbox(
+                    "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
+                    help="The day of week that the uploaded data should end at, any other day will raise an error"
+                )
 
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
@@ -502,6 +517,10 @@ def render_run_form(cfg):
             
             cfg.OUTPUT_TIME_TO_LIFE = int(output_ttl)
             cfg.FAILED_INPUT_TIME_TO_LIFE = int(failed_input_ttl)
+
+            cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
+            cfg.START_DAY_OF_WEEK = start_dow
+            cfg.END_DAY_OF_WEEK = end_dow
 
 
             # Per-key recipients from editor
@@ -661,6 +680,10 @@ def render_run_form(cfg):
                         except Exception:
                             pass
                         status.update(label="❌ Failed", state="error")
+                        
+                        if "Please only upload 1 or 2 full weeks of data." in str(result_holder["error"]):
+                                st.session_state["incoming_locked"] = True
+
                     else:
                         result = result_holder["value"]
                         if result is None:
@@ -873,6 +896,16 @@ if st.session_state.auth_required:
                     "- If you renamed your Streamlit app or URL, ensure the Google OAuth "
                     "Authorized redirect URI matches exactly (including trailing slash)."
                 )
+
+# Optional lock if invalid incoming file was detected
+locked = st.session_state.get("incoming_locked", False)
+if locked:
+    st.error("The most recent uploaded file is not a valid 1- or 2-week report for the selected start/end days. Upload a new file to the Incoming folder, then click **Re-check Incoming**.")
+    if st.button("Re-check Incoming", type="secondary"):
+        st.session_state["incoming_locked"] = False
+        _rerun()
+    st.stop()
+
 else:
     # Ensure config reflects Drive-based overrides after auth
     cfg = Config.load()

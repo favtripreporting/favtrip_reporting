@@ -17,7 +17,8 @@ from .config import Config
 from .google_client import get_credentials, services
 from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
-    get_value, first_gid
+    get_value, first_gid,
+    get_first_sheet_meta, get_values_2d, delete_rows_range, delete_row_indices, add_blank_sheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age
 from .gmail_utils import send_email, email_manager_report
@@ -44,6 +45,117 @@ def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
 
 def timestamp_now(tz: str, fmt: str) -> str:
     return datetime.now(ZoneInfo(tz)).strftime(fmt)
+
+class IncomingDataValidationError(Exception):
+    """Raised when the incoming report is not 1 or 2 full weeks as configured."""
+    pass
+
+_DOW_MAP = {
+    "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
+    "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
+}
+
+def _parse_sheet_date(cell: str | int | float):
+    """
+    Parse a Google Sheets date cell. Accepts strings (e.g., '2026-03-04', '03/04/2026')
+    and serial numbers. Returns datetime.date or None.
+    """
+    from datetime import datetime, timedelta
+    if cell is None or cell == "":
+        return None
+    # Numeric -> try Google serial (days since 1899-12-30)
+    try:
+        if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace(".", "", 1).isdigit()):
+            serial = float(cell)
+            base = datetime(1899, 12, 30)
+            return (base + timedelta(days=serial)).date()
+    except Exception:
+        pass
+    s = str(cell).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(s).date()
+    except Exception:
+        return None
+
+def _find_header_and_date_col(values2d):
+    """
+    Find the header row whose first cell == 'Store', and the 'Date' column index.
+    Returns (header_row_ix, date_col_ix) or (None, None).
+    """
+    header_ix = None
+    for r, row in enumerate(values2d):
+        c0 = (row[0].strip() if row and isinstance(row[0], str) else row[0] if row else "")
+        if str(c0).strip().lower() == "store":
+            header_ix = r
+            break
+    if header_ix is None:
+        return None, None
+    headers = [str(h).strip() for h in values2d[header_ix]]
+    date_col_ix = None
+    for c, h in enumerate(headers):
+        if h.lower() == "date":
+            date_col_ix = c
+            break
+    return header_ix, date_col_ix
+
+def _collect_unique_dates(values2d, header_ix, date_cix):
+    dates = []
+    for r in range(header_ix + 1, len(values2d)):
+        row = values2d[r]
+        if date_cix >= len(row):
+            continue
+        d = _parse_sheet_date(row[date_cix])
+        if d:
+            dates.append(d)
+    return sorted(set(dates))
+
+def _check_week_boundaries(unique_dates, start_dow, end_dow):
+    """Validate first/last weekday (unless set to Any). Return (earliest, latest)."""
+    if not unique_dates:
+        raise IncomingDataValidationError("No dates found in incoming report.")
+    earliest, latest = unique_dates[0], unique_dates[-1]
+    s_ok = (_DOW_MAP[start_dow] is None) or (earliest.weekday() == _DOW_MAP[start_dow])
+    e_ok = (_DOW_MAP[end_dow]   is None) or (latest.weekday()   == _DOW_MAP[end_dow])
+    if not (s_ok and e_ok):
+        raise IncomingDataValidationError(
+            f"Please only upload 1 or 2 full weeks of data. The first day of week included in the report should be {start_dow} and the last day of week included in the report should be {end_dow}"
+        )
+    return earliest, latest
+
+def _plan_weeks(unique_dates):
+    """
+    Decide if we have one or two weeks by count of unique calendar days.
+    Returns ('one', set7) or ('two', (set7_oldest, set7_newest)).
+    """
+    if len(unique_dates) == 7:
+        return "one", set(unique_dates)
+    if len(unique_dates) == 14:
+        return "two", (set(unique_dates[:7]), set(unique_dates[7:]))
+    # Not 7 or 14
+    raise IncomingDataValidationError(
+        "Please only upload 1 or 2 full weeks of data. The first day of week included in the report should be XXX and the last day of week included in the report should be YYY"
+    )
+
+def _trim_header_if_needed(svc, spreadsheet_id: str, sheet_id: int, values2d, header_ix):
+    """Ensure header is at row 0 by deleting rows above it."""
+    if header_ix and header_ix > 0:
+        delete_rows_range(svc, spreadsheet_id, sheet_id, 0, header_ix)
+
+def _filter_rows_to_dates(svc, spreadsheet_id: str, sheet_id: int, values2d, header_ix, date_cix, keep_dates_set):
+    """Delete all non-header rows whose Date is not in keep_dates_set."""
+    bad_rows = []
+    for r in range(header_ix + 1, len(values2d)):
+        row = values2d[r]
+        d = _parse_sheet_date(row[date_cix] if date_cix < len(row) else None)
+        if (d is None) or (d not in keep_dates_set):
+            bad_rows.append(r)
+    delete_row_indices(svc, spreadsheet_id, sheet_id, bad_rows)
+
 
 import re
 
@@ -103,27 +215,89 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info("Finding latest incoming spreadsheet…")
     latest = find_latest_sheet(drive_svc, cfg.INCOMING_FOLDER_ID)
     if not latest:
-        raise RuntimeError("No incoming report found.")
+        raise SystemExit("No incoming report found.")
     new_report_id = latest["id"]
     if logger:
         logger.info(f"Latest incoming: {latest['name']} ({new_report_id})")
 
-    # Step 2: prep calculations workbook
+    # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
+    if logger:
+        logger.info("Validating incoming report (header, dates, week boundaries)…")
+    first_title, first_sid = get_first_sheet_meta(sheets_svc, new_report_id)
+    values = get_values_2d(sheets_svc, new_report_id, first_title, "A:Z")
+
+    h_ix, d_cix = _find_header_and_date_col(values)
+    if h_ix is None or d_cix is None:
+        raise IncomingDataValidationError(
+            "Unable to locate header ('Store' in A1) and/or 'Date' column in the incoming report."
+        )
+
+    unique_dates = _collect_unique_dates(values, h_ix, d_cix)
+    _ = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
+    plan_kind, plan_payload = _plan_weeks(unique_dates)
+
+    # Step 2: prep calculations workbook (branch by plan)
     if logger:
         logger.info("Preparing calculations workbook…")
-    delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
-    try:
-        copy_sheet_as(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week", "Last Week")
-        if logger:
-            logger.info("Copied old 'Current Week' to 'Last Week'")
-    except Exception:
-        if logger:
-            logger.warn("No 'Current Week' sheet exists to copy")
-    delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
-    copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
-    if logger:
-        logger.info("Inserted new 'Current Week' from latest incoming report")
 
+    if plan_kind == "two":
+        # Two weeks → split: oldest 7 -> Last Week; newest 7 -> Current Week
+        if logger:
+            logger.info("Detected 2 weeks; splitting into 'Last Week' (oldest 7) and 'Current Week' (newest 7)")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        # Copy source sheet twice
+        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        # Find destination sheet IDs
+        dest_meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
+        props = {s["properties"]["title"]: s["properties"]["sheetId"] for s in dest_meta.get("sheets", [])}
+
+        # Use the source values to know header/date col; then trim & filter each
+        for title, keeps in [("Last Week", plan_payload[0]), ("Current Week", plan_payload[1])]:
+            sid = props[title]
+            _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, sid, values, h_ix)
+            # Re-fetch current values on destination after the trim
+            v2 = get_values_2d(sheets_svc, cfg.CALC_SPREADSHEET_ID, title, "A:Z")
+            # Header is now at row 0, date column index unchanged relative to header
+            _filter_rows_to_dates(sheets_svc, cfg.CALC_SPREADSHEET_ID, sid, v2, 0, d_cix, keeps)
+
+    elif plan_kind == "one" and cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK:
+        # One week + rollover ON → current behavior
+        if logger:
+            logger.info("Detected 1 week; auto-rollover enabled → copying old Current→Last and inserting new Current")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        try:
+            copy_sheet_as(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week", "Last Week")
+            if logger:
+                logger.info("Copied old 'Current Week' to 'Last Week'")
+        except Exception:
+            if logger:
+                logger.warn("No 'Current Week' sheet exists to copy")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        # Trim header for Current Week
+        meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
+        cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
+        _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, cw_sid, values, h_ix)
+
+    else:
+        # One week + rollover OFF → Current Week only; Last Week blank
+        if logger:
+            logger.info("Detected 1 week; auto-rollover disabled → Current only, Last Week blank")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        delete_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Current Week")
+        add_blank_sheet(sheets_svc, cfg.CALC_SPREADSHEET_ID, "Last Week")
+        copy_first_sheet_as(sheets_svc, new_report_id, cfg.CALC_SPREADSHEET_ID, "Current Week")
+
+        meta = sheets_svc.spreadsheets().get(spreadsheetId=cfg.CALC_SPREADSHEET_ID).execute()
+        cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
+        _trim_header_if_needed(sheets_svc, cfg.CALC_SPREADSHEET_ID, cw_sid, values, h_ix)
+
+    # Refresh reference sheets (unchanged)
     if logger:
         logger.info("Refreshing reference sheets (prefix 'REFR: ')…")
     refresh_sheets_with_prefix(sheets_svc, cfg.CALC_SPREADSHEET_ID, prefix="REFR: ", logger=logger)

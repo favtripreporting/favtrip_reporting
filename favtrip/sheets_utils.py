@@ -111,3 +111,45 @@ def get_value(svc, spreadsheet_id: str, sheet_title: str, named_range: str) -> s
 def first_gid(svc, spreadsheet_id: str) -> int:
     meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     return meta["sheets"][0]["properties"]["sheetId"]
+
+# --- Additional helpers for row inspection/edits ---
+
+def get_first_sheet_meta(svc, spreadsheet_id: str):
+    """Return (first_sheet_title, first_sheet_id)."""
+    meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    first = meta["sheets"][0]["properties"]
+    return first["title"], first["sheetId"]
+
+def get_values_2d(svc, spreadsheet_id: str, sheet_title: str, a1_range: str = "A:Z"):
+    """Fetch a 2D values array from a sheet title + A1 range."""
+    rng = f"'{sheet_title}'!{a1_range}"
+    res = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=rng).execute()
+    return res.get("values", [])
+
+def delete_rows_range(svc, spreadsheet_id: str, sheet_id: int, start_row_index: int, end_row_index: int):
+    """Delete [start_row_index, end_row_index) (0‑based; end exclusive)."""
+    if end_row_index <= start_row_index:
+        return
+    body = {"requests": [{
+        "deleteDimension": {
+            "range": {
+                "sheetId": sheet_id,
+                "dimension": "ROWS",
+                "startIndex": start_row_index,
+                "endIndex": end_row_index,
+            }
+        }
+    }]}
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+
+def delete_row_indices(svc, spreadsheet_id: str, sheet_id: int, row_indices_desc: list[int]):
+    """Delete multiple absolute row indices (0‑based) in descending order."""
+    for r in sorted(row_indices_desc, reverse=True):
+        delete_rows_range(svc, spreadsheet_id, sheet_id, r, r+1)
+
+def add_blank_sheet(svc, spreadsheet_id: str, title: str, rows: int = 1000, cols: int = 26):
+    """Create a blank sheet with a given title."""
+    body = {"requests": [{
+        "addSheet": {"properties": {"title": title, "gridProperties": {"rowCount": rows, "columnCount": cols}}}
+    }]}
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
