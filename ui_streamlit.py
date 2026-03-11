@@ -735,15 +735,6 @@ def render_run_form(cfg):
                                 with open("last_run.log", "rb") as f:
                                     st.session_state["last_run_log"] = f.read()
                                     st.session_state["last_run_timestamp"] = result.timestamp
-                            
-                            if st.session_state.get("offer_log_download", False) and "last_run_log" in st.session_state:
-                                st.download_button(
-                                    "⬇️ Download full log (last_run.log)",
-                                    st.session_state["last_run_log"],
-                                    file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
-                                    mime="text/plain",
-                                    use_container_width=True
-                                )
 
 
                             st.session_state.incoming_uploaded_ok = False
@@ -756,6 +747,15 @@ def render_run_form(cfg):
 
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.session_state.get("offer_log_download", False) and "last_run_log" in st.session_state:
+        st.download_button(
+            "⬇️ Download full log (last_run.log)",
+            st.session_state["last_run_log"],
+            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+            mime="text/plain",
+            use_container_width=True
+            )
 
     # Post-form controls for generic errors
     # If the UI is frozen due to a non-file error, show a single Retry button here.
