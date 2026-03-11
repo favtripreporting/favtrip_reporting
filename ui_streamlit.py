@@ -886,7 +886,7 @@ with st.sidebar:
     
     st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev")
 
-    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/{cfg.INCOMING_FOLDER_ID}")
+    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k")
 
 # Auth gate
 if st.session_state.auth_required:
