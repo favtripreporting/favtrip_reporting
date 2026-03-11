@@ -25,6 +25,7 @@ from favtrip.drive_utils import upload_to_drive
 # =========================
 # Constants & Simple Helpers
 # =========================
+file_error = None
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -677,7 +678,7 @@ def render_run_form(cfg):
                     lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
 
                     if result_holder["error"]:
-                        e = result_holder["error"]
+                        global file_error = result_holder["error"]
                         st.error(f"Run failed: {result_holder['error']}")
                         # Optional during debugging: show stack trace (remove later for a cleaner UI)
                         try:
@@ -908,7 +909,7 @@ if st.session_state.auth_required:
 # Optional lock if invalid incoming file was detected
 locked = st.session_state.get("incoming_locked", False)
 if locked:
-    st.error(str(e))
+    st.error(str(file_error))
     if st.button("Retry", type="secondary"):
         st.session_state["incoming_locked"] = False
         _rerun()
