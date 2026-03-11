@@ -693,7 +693,8 @@ def render_run_form(cfg):
                             pass
                         status.update(label="❌ Failed", state="error")
                         
-                        _rerun()
+                        if st.button("Retry", type="secondary"):
+                            _rerun()
 
                     else:
                         result = result_holder["value"]
