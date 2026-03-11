@@ -609,9 +609,9 @@ def render_run_form(cfg):
                             "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
                             "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT,
 
-                            "USE_AUTO_ROLLOVER_IF_ONE_WEEK" = cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK
-                            "START_DAY_OF_WEEK" = cfg.START_DAY_OF_WEEK
-                            "END_DAY_OF_WEEK" = cfg.END_DAY_OF_WEEK
+                            "USE_AUTO_ROLLOVER_IF_ONE_WEEK" : cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
+                            "START_DAY_OF_WEEK" : cfg.START_DAY_OF_WEEK,
+                            "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK
                         }
 
                         # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
