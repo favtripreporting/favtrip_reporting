@@ -25,7 +25,6 @@ from favtrip.drive_utils import upload_to_drive
 # =========================
 # Constants & Simple Helpers
 # =========================
-file_error = None
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -678,8 +677,12 @@ def render_run_form(cfg):
                     lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
 
                     if result_holder["error"]:
-                        global file_error 
-                        file_error = result_holder["error"]
+                        
+                        err = result_holder["error"]
+                            # keep for display across reruns
+                            st.session_state["file_error"] = str(err)
+                            st.session_state["incoming_locked"] = True
+                        
                         st.error(f"Run failed: {result_holder['error']}")
                         # Optional during debugging: show stack trace (remove later for a cleaner UI)
                         try:
@@ -688,9 +691,7 @@ def render_run_form(cfg):
                             pass
                         status.update(label="❌ Failed", state="error")
                         
-                        if "Please only upload 1 or 2 full weeks of data." in str(result_holder["error"]):
-                                st.session_state["incoming_locked"] = True
-                                _rerun()
+                        _rerun()
 
                     else:
                         result = result_holder["value"]
@@ -910,7 +911,10 @@ if st.session_state.auth_required:
 # Optional lock if invalid incoming file was detected
 locked = st.session_state.get("incoming_locked", False)
 if locked:
-    st.error(str(file_error))
+
+    err_msg = st.session_state.get("file_error", "An unknown error occurred.")
+    st.error(err_msg)
+
     if st.button("Retry", type="secondary"):
         st.session_state["incoming_locked"] = False
         _rerun()
