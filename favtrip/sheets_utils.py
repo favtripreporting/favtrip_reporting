@@ -111,3 +111,90 @@ def get_value(svc, spreadsheet_id: str, sheet_title: str, named_range: str) -> s
 def first_gid(svc, spreadsheet_id: str) -> int:
     meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     return meta["sheets"][0]["properties"]["sheetId"]
+
+# --- Additional helpers for row inspection/edits ---
+
+def get_first_sheet_meta(svc, spreadsheet_id: str):
+    """Return (first_sheet_title, first_sheet_id)."""
+    meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    first = meta["sheets"][0]["properties"]
+    return first["title"], first["sheetId"]
+
+def get_values_2d(svc, spreadsheet_id: str, sheet_title: str, a1_range: str = "A:Z"):
+    """Fetch a 2D values array from a sheet title + A1 range."""
+    rng = f"'{sheet_title}'!{a1_range}"
+    res = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=rng).execute()
+    return res.get("values", [])
+
+def delete_rows_range(svc, spreadsheet_id: str, sheet_id: int, start_row_index: int, end_row_index: int):
+    """Delete [start_row_index, end_row_index) (0‑based; end exclusive)."""
+    if end_row_index <= start_row_index:
+        return
+    body = {"requests": [{
+        "deleteDimension": {
+            "range": {
+                "sheetId": sheet_id,
+                "dimension": "ROWS",
+                "startIndex": start_row_index,
+                "endIndex": end_row_index,
+            }
+        }
+    }]}
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+
+def delete_row_indices(svc, spreadsheet_id: str, sheet_id: int, row_indices_desc: list[int]):
+    """Delete multiple absolute row indices (0‑based) in descending order."""
+    for r in sorted(row_indices_desc, reverse=True):
+        delete_rows_range(svc, spreadsheet_id, sheet_id, r, r+1)
+
+def add_blank_sheet(svc, spreadsheet_id: str, title: str, rows: int = 1000, cols: int = 26):
+    """Create a blank sheet with a given title."""
+    body = {"requests": [{
+        "addSheet": {"properties": {"title": title, "gridProperties": {"rowCount": rows, "columnCount": cols}}}
+    }]}
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+
+def add_or_replace_sheet(svc, spreadsheet_id: str, title: str, rows: int = 2000, cols: int = 50):
+    """
+    Remove any existing sheet with 'title' and add a blank one.
+    """
+    try:
+        delete_sheet(svc, spreadsheet_id, title)
+    except Exception:
+        # if not present, ignore
+        pass
+    add_blank_sheet(svc, spreadsheet_id, title, rows, cols)
+
+def put_values_2d(svc, spreadsheet_id: str, sheet_title: str, values: list[list]):
+    """
+    Write a 2D array to 'A1' of 'sheet_title' in a single update.
+    """
+    rng = f"'{sheet_title}'!A1"
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=rng,
+        valueInputOption="USER_ENTERED",
+        body={"values": values}
+    ).execute()
+
+def _force_column_as_text(header: list[str], rows: list[list], header_name: str) -> list[list]:
+    """
+    For the column matching header_name, coerce every non-blank value to a string
+    prefixed with a single apostrophe, so Google Sheets stores it as text.
+    """
+    idx = None
+    for i, h in enumerate(header):
+        if str(h).strip().lower() == header_name.strip().lower():
+            idx = i
+            break
+    if idx is None:
+        return rows  # header not found; nothing to do
+
+    out = []
+    for r in rows:
+        r2 = list(r)
+        if idx < len(r2) and r2[idx] not in (None, ""):
+            # ensure string and prefix with apostrophe
+            r2[idx] = "'" + str(r2[idx])
+        out.append(r2)
+    return out

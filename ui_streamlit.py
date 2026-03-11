@@ -217,6 +217,7 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
 # =========================
 
 def render_run_form(cfg):
+    err = None
     # --- STATE INIT ---
     if "incoming_uploader_version" not in st.session_state:
         st.session_state.incoming_uploader_version = 0
@@ -232,7 +233,8 @@ def render_run_form(cfg):
     # =========================
     
     with st.container(border=True):
-        st.subheader("Upload Current Week Sales Report")
+        st.subheader("Upload Live Items Report")
+        st.caption("Please upload a live items report from Modisoft. The report must either be 1 or 2 full weeks of data.")
         # Use the SAME column grid as the run form header: [4, 1, 1]
         up_col, _, upbtn_col = st.columns([4, 1, 1])
 
@@ -241,7 +243,7 @@ def render_run_form(cfg):
                 "Upload Current Week Sales Report",
                 type=["xlsx", "csv"],
                 key=uploader_key,
-                help="Please upload the current week's 'Live Items Report' from Modisoft as an XLSX or CSV file.",
+                help="Please upload the current 'Live Items Report' from Modisoft as an XLSX or CSV file.",
                 label_visibility="collapsed",
                 accept_multiple_files=False,
             )
@@ -254,13 +256,15 @@ def render_run_form(cfg):
 
         with upbtn_col:
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
+            
             upload_clicked = st.button(
                 "⬆️ Upload Now",
                 use_container_width=True,
-                disabled=(not file_selected),
+                disabled=(not file_selected) or st.session_state.get("freeze_ui", False),
                 type="primary",
                 key="upload_submit",
             )
+
             st.markdown('</div>', unsafe_allow_html=True)
 
         # --- Handle the upload action immediately ---
@@ -338,7 +342,7 @@ def render_run_form(cfg):
             submitted = st.form_submit_button(
                 "▶️ Run Pipeline",
                 use_container_width=True,
-                disabled=run_disabled,
+                disabled=run_disabled or st.session_state.get("freeze_ui", False),
                 type="primary",
                 key="run_submit"
             )
@@ -451,8 +455,6 @@ def render_run_form(cfg):
                     value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                     help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                 )
-
-            with gc2:                                
                 output_ttl = st.number_input(
                     "Output Time-To-Life (days)",
                     min_value=0,
@@ -468,6 +470,23 @@ def render_run_form(cfg):
                     value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
                     help="Delete old unused incoming files older than this many days."
                     )
+
+            with gc2:                                
+                # --- New advanced intake settings ---
+                use_rollover = st.toggle(
+                    'Use automatic rollover if only 1 week is uploaded',
+                    value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
+                    help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
+                )
+                _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
+                start_dow = st.selectbox(
+                    "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
+                    help="The day of week that the uploaded data should start at, any other day will raise an error"
+                )
+                end_dow = st.selectbox(
+                    "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
+                    help="The day of week that the uploaded data should end at, any other day will raise an error"
+                )
 
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
@@ -502,6 +521,10 @@ def render_run_form(cfg):
             
             cfg.OUTPUT_TIME_TO_LIFE = int(output_ttl)
             cfg.FAILED_INPUT_TIME_TO_LIFE = int(failed_input_ttl)
+
+            cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
+            cfg.START_DAY_OF_WEEK = start_dow
+            cfg.END_DAY_OF_WEEK = end_dow
 
 
             # Per-key recipients from editor
@@ -588,7 +611,11 @@ def render_run_form(cfg):
 
                             "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
                             "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
-                            "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT
+                            "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT,
+
+                            "USE_AUTO_ROLLOVER_IF_ONE_WEEK" : cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
+                            "START_DAY_OF_WEEK" : cfg.START_DAY_OF_WEEK,
+                            "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK
                         }
 
                         # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
@@ -654,13 +681,37 @@ def render_run_form(cfg):
                     lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
 
                     if result_holder["error"]:
-                        st.error(f"Run failed: {result_holder['error']}")
-                        # Optional during debugging: show stack trace (remove later for a cleaner UI)
+                        err = result_holder["error"]
+                        err_text = str(err)
+
+                        # Always lock out Run after a failure until a new upload occurs
+                        st.session_state.incoming_uploaded_ok = False
+
+                        # --- Special case: "Please only upload 1 or 2 full weeks of data"
+                        weeks_err = "Please only upload 1 or 2 full weeks of data" in err_text
+                        if weeks_err:
+                            # Route to the simple locked UI (error + Retry)
+                            st.session_state["file_error"] = err_text
+                            st.session_state["incoming_locked"] = True
+                            status.update(label="❌ Invalid file (1–2 full weeks required)", state="error")
+                            _rerun()
+                            st.stop()
+
+                        # --- Generic error path: show details here and freeze the UI
+                        st.error("Run failed.")
                         try:
-                            st.exception(result_holder["error"])
+                            with st.expander("Error details", expanded=True):
+                                st.exception(err)
                         except Exception:
-                            pass
+                            # Fallback if exception rendering fails
+                            with st.expander("Error details", expanded=True):
+                                st.write(err_text)
+
+                        # Freeze the UI until the user clicks Retry (after the form)
+                        st.session_state["freeze_ui"] = True
                         status.update(label="❌ Failed", state="error")
+                        
+
                     else:
                         result = result_holder["value"]
                         if result is None:
@@ -684,7 +735,8 @@ def render_run_form(cfg):
                                 with open("last_run.log", "rb") as f:
                                     st.session_state["last_run_log"] = f.read()
                                     st.session_state["last_run_timestamp"] = result.timestamp
-                            
+
+
                             st.session_state.incoming_uploaded_ok = False
                             st.session_state.incoming_uploader_version += 1
                             st.session_state.incoming_selected_name = None
@@ -693,16 +745,31 @@ def render_run_form(cfg):
                             time.sleep(10)
                             _rerun()
 
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    if "last_run_log" in st.session_state:
+    if st.session_state.get("offer_log_download", False) and "last_run_log" in st.session_state:
         st.download_button(
             "⬇️ Download full log (last_run.log)",
             st.session_state["last_run_log"],
             file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
             mime="text/plain",
             use_container_width=True
-        )
+            )
+
+    # Post-form controls for generic errors
+    # If the UI is frozen due to a non-file error, show a single Retry button here.
+    if st.session_state.get("freeze_ui", False) and not st.session_state.get("incoming_locked", False):
+        retry_cols = st.columns([1, 3, 1])
+        with retry_cols[1]:
+            if st.button("Retry", type="secondary", use_container_width=True):
+                # Unfreeze, but force a new file upload before the next run
+                st.session_state["freeze_ui"] = False
+                st.session_state["incoming_uploaded_ok"] = False
+                st.session_state["incoming_selected_name"] = None
+                st.session_state["incoming_uploader_version"] += 1  # resets uploader widget
+                _rerun()
+
 
 
 
@@ -873,6 +940,20 @@ if st.session_state.auth_required:
                     "- If you renamed your Streamlit app or URL, ensure the Google OAuth "
                     "Authorized redirect URI matches exactly (including trailing slash)."
                 )
+            st.stop()
+
+# Optional lock if invalid incoming file was detected
+locked = st.session_state.get("incoming_locked", False)
+if locked:
+
+    err_msg = st.session_state.get("file_error", "An unknown error occurred.")
+    st.error(err_msg)
+
+    if st.button("Retry", type="secondary"):
+        st.session_state["incoming_locked"] = False
+        _rerun()
+    st.stop()
+
 else:
     # Ensure config reflects Drive-based overrides after auth
     cfg = Config.load()
