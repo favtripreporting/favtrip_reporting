@@ -153,3 +153,26 @@ def add_blank_sheet(svc, spreadsheet_id: str, title: str, rows: int = 1000, cols
         "addSheet": {"properties": {"title": title, "gridProperties": {"rowCount": rows, "columnCount": cols}}}
     }]}
     svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+
+def add_or_replace_sheet(svc, spreadsheet_id: str, title: str, rows: int = 2000, cols: int = 50):
+    """
+    Remove any existing sheet with 'title' and add a blank one.
+    """
+    try:
+        delete_sheet(svc, spreadsheet_id, title)
+    except Exception:
+        # if not present, ignore
+        pass
+    add_blank_sheet(svc, spreadsheet_id, title, rows, cols)
+
+def put_values_2d(svc, spreadsheet_id: str, sheet_title: str, values: list[list]):
+    """
+    Write a 2D array to 'A1' of 'sheet_title' in a single update.
+    """
+    rng = f"'{sheet_title}'!A1"
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=rng,
+        valueInputOption="RAW",
+        body={"values": values}
+    ).execute()
