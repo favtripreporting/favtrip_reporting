@@ -109,3 +109,15 @@ def copy_file_to_folder(drive_svc, src_file_id: str, dest_folder_id: str, new_na
         body=body,
         fields="id,name,mimeType,webViewLink"
     ).execute()
+
+def rename_file(drive_svc, file_id: str, new_name: str):
+    """
+    Rename a Google Drive file by its fileId.
+    Returns the updated file resource (id, name, mimeType, webViewLink).
+    """
+    body = {"name": new_name}
+    return drive_svc.files().update(
+        fileId=file_id,
+        body=body,
+        fields="id,name,mimeType,webViewLink"
+    ).execute()
