@@ -35,7 +35,7 @@ def _rfc3339(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 def trash_file(drive, file_id: str):
-    return drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+    return drive.files().update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True).execute()
 
 def cleanup_folder_by_age(drive, folder_id: str, days: int, logger=None):
     if days <= 0:
@@ -88,7 +88,7 @@ def find_sheet_by_name(drive_svc, folder_id: str, name: str):
         f"name = '{_drive_q_escape(name)}' and "
         "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
     )
-    
+
     resp = drive_svc.files().list(
         q=q,
         orderBy="createdTime desc",
@@ -106,6 +106,18 @@ def copy_file_to_folder(drive_svc, src_file_id: str, dest_folder_id: str, new_na
     body = {"name": new_name, "parents": [dest_folder_id]}
     return drive_svc.files().copy(
         fileId=src_file_id,
+        body=body,
+        fields="id,name,mimeType,webViewLink"
+    ).execute()
+
+def rename_file(drive_svc, file_id: str, new_name: str):
+    """
+    Rename a Google Drive file by its fileId.
+    Returns the updated file resource (id, name, mimeType, webViewLink).
+    """
+    body = {"name": new_name}
+    return drive_svc.files().update(
+        fileId=file_id,
         body=body,
         fields="id,name,mimeType,webViewLink"
     ).execute()

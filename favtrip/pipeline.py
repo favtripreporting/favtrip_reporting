@@ -19,9 +19,9 @@ from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
-    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range
+    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
 )
-from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder
+from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file
 from .gmail_utils import send_email, email_manager_report
 
 CSV_MIME = "text/csv"
@@ -273,6 +273,9 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
     user_calc_sheet_id = None
+    master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+    if logger:
+        logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
@@ -289,6 +292,48 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                 user_calc_sheet_id = found["id"]
                 if logger:
                     logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
+                
+                user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+                if logger:
+                    logger.info(f"User Update Time: {user_update_time}")
+
+                if master_update_time > user_update_time:
+                    if logger:
+                        logger.info("Per-user workbook found but out of date; duplicating master into USER_FOLDER_ID…")
+                    created = copy_file_to_folder(
+                        drive_svc,
+                        cfg.CALC_SPREADSHEET_ID,
+                        cfg.USER_FOLDER_ID,
+                        new_name=f"{user_id_for_name}_temp",
+                    )
+                    user_calc_sheet_id_temp = created["id"]
+                    if logger:
+                        logger.info(f"Created new per-user workbook: {created.get('webViewLink')}")
+
+                    delete_sheet(sheets_svc, user_calc_sheet_id_temp, "Current Week")
+                    delete_sheet(sheets_svc, user_calc_sheet_id_temp, "Last Week")
+
+                    if logger:
+                        logger.info(f"Deleted data sheets in new user file.")
+
+                    copy_sheet_to_another_spreadsheet(sheets_svc, user_calc_sheet_id, "Current Week", user_calc_sheet_id_temp, "Current Week")
+                    copy_sheet_to_another_spreadsheet(sheets_svc, user_calc_sheet_id, "Last Week", user_calc_sheet_id_temp, "Last Week")
+
+                    if logger:
+                        logger.info(f"Copied old data sheets to new user file.")
+
+                    trash_file(drive_svc, user_calc_sheet_id)
+
+                    if logger:
+                        logger.info(f"Deleted old user file.")
+
+                    rename_file(drive_svc, user_calc_sheet_id_temp, user_id_for_name)
+
+                    if logger:
+                        logger.info(f"Renamed new user file for continued use.")
+                    
+                    user_calc_sheet_id = user_calc_sheet_id_temp
+
             else:
                 if logger:
                     logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
