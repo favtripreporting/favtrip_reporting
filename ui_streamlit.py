@@ -888,6 +888,8 @@ with st.sidebar:
 
     st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k")
 
+    st.write(st.secrets)
+
 # Auth gate
 if st.session_state.auth_required:
     # ----------------------------
