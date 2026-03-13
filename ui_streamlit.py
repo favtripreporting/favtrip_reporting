@@ -879,14 +879,16 @@ with st.sidebar:
         except AttributeError:
             st.experimental_rerun()
     
+    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", use_container_width=True)
+
+    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", use_container_width=True)
+
+    st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", use_container_width=True)
+
     st.checkbox(
-        "Offer full log download after completion",
+        "Offer full log download",
         key="offer_log_download",
         help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
-    
-    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev")
-
-    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k")
 
 # Auth gate
 if st.session_state.auth_required:
