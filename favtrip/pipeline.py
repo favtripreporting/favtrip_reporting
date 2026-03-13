@@ -495,102 +495,126 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     # Step 4D: Create per-report-key outputs (CSV) and email
 
-    # --- Parse the master CSV into rows of dicts ---
+# --- Parse the master CSV into rows of dicts ---
 
-    # master_csv_bytes = export_sheet(..., "csv")
-    text = master_csv_bytes.decode("utf-8-sig", errors="replace")
-    reader = csv.reader(io.StringIO(text))
+text = master_csv_bytes.decode("utf-8-sig", errors="replace")
+reader = csv.reader(io.StringIO(text))
 
-    rows_list = list(reader)
-    if not rows_list:
-        raise RuntimeError("CSV has no rows.")
+rows_list = list(reader)
+if not rows_list:
+    raise RuntimeError("CSV has no rows.")
 
-    headers = [h.strip() for h in rows_list[0]]
-    if not headers:
-        raise RuntimeError("CSV has no header.")
+headers = [h.strip() for h in rows_list[0]]
+if not headers:
+    raise RuntimeError("CSV has no header.")
 
-    # Find 'report_key' column, case-insensitive
-    lower_idx = {h.lower(): i for i, h in enumerate(headers)}
-    if "report_key" not in lower_idx:
-        raise RuntimeError("Report_Key column missing.")
-    report_idx = lower_idx["report_key"]
+# Find required columns (case-insensitive)
+lower_idx = {h.lower(): i for i, h in enumerate(headers)}
 
-    # Materialize rows as list[dict]
-    rows = []
-    for row in rows_list[1:]:
-        rows.append({headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))})
+if "report_key" not in lower_idx:
+    raise RuntimeError("Report_Key column missing.")
+if "store" not in lower_idx:
+    raise RuntimeError("Store column missing.")
 
-    # Group by report key
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
-        groups.setdefault(key.upper(), []).append(r)
+report_idx = lower_idx["report_key"]
+store_idx = lower_idx["store"]
 
+# Headers to export (exclude report_key)
+export_headers = [h for i, h in enumerate(headers) if i != report_idx]
+
+# Materialize rows as list[dict]
+rows = []
+for row in rows_list[1:]:
+    rows.append({headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))})
+
+# Group by (report_key, store)
+groups: dict[tuple[str, str], list[dict]] = {}
+for r in rows:
+    report_key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
+    store = (str(r.get(headers[store_idx]) or "").strip()) or "UNKNOWN"
+    groups.setdefault((store.upper(), report_key.upper()), []).append(r)
+
+
+for (store, key), key_rows in groups.items():
+
+    if not cfg.USE_ALL_REPORT_KEYS and key not in (cfg.REPORT_KEY_RUN_LIST or []):
+        continue
+
+    # Build CSV text in memory
+    sio = io.StringIO()
+    w = csv.writer(sio, lineterminator="\n")
+
+    w.writerow(export_headers)
+
+    for rr in key_rows:
+        w.writerow([rr.get(h, "") for h in export_headers])
+
+    key_csv_bytes = sio.getvalue().encode("utf-8")
+
+    tag = clean_tag(key)
+    store_tag = clean_tag(store)
+
+    csv_name = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.csv"
+
+    # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
+    created = upload_to_drive(
+        drive_svc, key_csv_bytes, csv_name,
+        CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True
+    )
+
+    file_id = created["id"]
+    gid = first_gid(sheets_svc, file_id)
+
+    # Export the Google Sheet as PDF
+    pdf = export_sheet(creds, file_id, gid, "pdf")
+    pdfname = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.pdf"
+
+    # Prefer Store+Key; else Key; else Store; else To; else Default
+    candidates = None
+    if cfg.REPORT_KEY_RECIPIENTS:
+        store_key = (store_tag, tag)
+        key_only = (None, tag)
+        store_only = (store_tag, None)
+    
+        if store_key in cfg.REPORT_KEY_RECIPIENTS:
+            candidates = cfg.REPORT_KEY_RECIPIENTS[store_key]
+        elif key_only in cfg.REPORT_KEY_RECIPIENTS:
+            candidates = cfg.REPORT_KEY_RECIPIENTS[key_only]
+        elif store_only in cfg.REPORT_KEY_RECIPIENTS:
+            candidates = cfg.REPORT_KEY_RECIPIENTS[store_only]
+
+    recipients = _fallback_recipients(
+        f"REPORT_KEY {tag}",
+        candidates,
+        cfg.TO_RECIPIENTS,
+        cfg.DEFAULT_ORDER_RECIPIENTS
+    )
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Order Report – {ts} – {location} – {tag} – {store}"
+    msg["From"] = "me"
+    msg["To"] = ", ".join(recipients)
+
+    if cfg.CC_RECIPIENTS:
+        msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
+
+    msg.set_content(
+        f"Hi {key} team,\nYour order report for store {store} is ready.\n"
+        f"Google Sheet: {created.get('webViewLink')}\n"
+        f"Attached: {pdfname}\n—Automated"
+    )
+
+    msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=pdfname)
+
+    if cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL:
+        msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
+
+    send_email(gmail_svc, "me", msg)
+
+    if logger:
+        logger.info(f"Emailed {tag} - {store}")
 
     
-    for key, key_rows in groups.items():
-        if not cfg.USE_ALL_REPORT_KEYS and key.upper() not in (cfg.REPORT_KEY_RUN_LIST or []):
-            continue
-
-        # Build CSV text in memory
-        sio = io.StringIO()
-        w = csv.writer(sio, lineterminator="\n")
-        w.writerow(headers)
-        for rr in key_rows:
-            w.writerow([rr.get(h, "") for h in headers])
-
-        key_csv_bytes = sio.getvalue().encode("utf-8")
-        tag = clean_tag(key)  # already upper
-
-        csv_name = f"Order_Report_{ts}_{location}_{tag}.csv"
-
-        # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
-        created = upload_to_drive(
-            drive_svc, key_csv_bytes, csv_name,
-            CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True
-        )
-        file_id = created["id"]
-        gid = first_gid(sheets_svc, file_id)
-
-
-        # Export the Google Sheet as PDF (unchanged behavior)
-        pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{ts}_{location}_{tag}.pdf"
-
-        # Prefer per‑key recipients; else default; else TO
-        candidates = None
-        if cfg.REPORT_KEY_RECIPIENTS:
-            # The keys in UI are upper-cased; normalize here too
-            candidates = cfg.REPORT_KEY_RECIPIENTS.get(tag)
-
-        recipients = _fallback_recipients(
-            f"REPORT_KEY {tag}",
-            candidates,
-            cfg.TO_RECIPIENTS,
-            cfg.DEFAULT_ORDER_RECIPIENTS
-        )
-
-        msg = EmailMessage()
-        msg["Subject"] = f"Order Report – {ts} – {location} – {tag}"
-        msg["From"] = "me"
-        msg["To"] = ", ".join(recipients)
-        if cfg.CC_RECIPIENTS:
-            msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
-
-        # Keep the Google Sheet link; PDF remains the attached artifact
-        msg.set_content(
-            f"Hi {key} team,\nYour order report is ready. \n"
-            f"Google Sheet: {created.get('webViewLink')}\n"
-            f"Attached: {pdfname}\n—Automated"
-        )
-        msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=pdfname)
-        if cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL:
-            msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
-
-        send_email(gmail_svc, "me", msg)
-        if logger:
-            logger.info(f"Emailed {tag}")
-
     # Step 4E: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
     if getattr(cfg, "EMAIL_MANAGER_REPORT", True):
         to_list = _fallback_recipients("Manager Report (TO_RECIPIENTS)", cfg.TO_RECIPIENTS)
