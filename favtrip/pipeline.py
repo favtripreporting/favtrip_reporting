@@ -56,16 +56,16 @@ _DOW_MAP = {
     "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
 }
 
-def _parse_sheet_date(cell: str | int | float):
+def _parse_sheet_datetime(cell: str | int | float) -> datetime | None:
     """
-    Parse a Google Sheets date cell into a date (drops time if present).
+    Parse a Google Sheets date/time cell into a full datetime.
     Accepts:
       - Google serial numbers (days since 1899-12-30)
       - Date strings: YYYY-MM-DD, MM/DD/YYYY, MM/DD/YY
-      - DateTime strings: with 12h or 24h time, with or without seconds, AM/PM
+      - DateTime strings: 12h or 24h, with or without seconds, AM/PM
       - ISO strings (date or datetime)
 
-    Returns: datetime.date or None if unparseable.
+    Returns: datetime.datetime or None if unparseable.
     """
     from datetime import datetime, timedelta
 
@@ -77,22 +77,15 @@ def _parse_sheet_date(cell: str | int | float):
         if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace(".", "", 1).isdigit()):
             serial = float(cell)
             base = datetime(1899, 12, 30)
-            return (base + timedelta(days=serial)).date()
+            # Google Sheets stores fractional days as time
+            return base + timedelta(days=serial)
     except Exception:
         pass
 
     s = str(cell).strip()
+    s = " ".join(s.split())  # remove weird whitespace
 
-    # Quick strip for weird whitespace
-    s = " ".join(s.split())
-
-    # If a timezone suffix or trailing text exists, try to isolate the datetime token
-    # (We keep it simple: split on two spaces or take first token that contains '/')
-    if " " in s and "/" in s:
-        # Nothing fancy; the format tries below will accept the full string if they match
-        pass
-
-    # --- 2) Try common datetime formats (12h and 24h), with or without seconds ---
+    # --- 2) Try common datetime formats (with time) ---
     dt_formats = [
         "%m/%d/%Y %I:%M:%S %p",  # 03/01/2026 12:03:45 AM
         "%m/%d/%Y %I:%M %p",     # 03/01/2026 12:03 AM
@@ -105,11 +98,11 @@ def _parse_sheet_date(cell: str | int | float):
     ]
     for fmt in dt_formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            return datetime.strptime(s, fmt)
         except Exception:
             continue
 
-    # --- 3) Try date-only formats ---
+    # --- 3) Try date-only formats (assume time is 00:00) ---
     date_formats = [
         "%Y-%m-%d",   # 2026-03-01
         "%m/%d/%Y",   # 03/01/2026
@@ -117,22 +110,22 @@ def _parse_sheet_date(cell: str | int | float):
     ]
     for fmt in date_formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            return datetime.strptime(s, fmt)
         except Exception:
             continue
 
-    # --- 4) Last resort: Python ISO parser (handles 'YYYY-MM-DD' and full ISO datetimes) ---
+    # --- 4) ISO format fallback ---
     try:
-        return datetime.fromisoformat(s).date()
+        return datetime.fromisoformat(s)
     except Exception:
         pass
 
-    # --- 5) If still not parsed, try taking only the date token before a space ---
+    # --- 5) Last resort: take first token before a space ---
     try:
         token = s.split(" ")[0]
         for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
             try:
-                return datetime.strptime(token, fmt).date()
+                return datetime.strptime(token, fmt)
             except Exception:
                 continue
     except Exception:
