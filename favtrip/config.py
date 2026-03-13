@@ -181,9 +181,8 @@ class Config:
             from favtrip.google_client import load_valid_token, services
             from favtrip.config_store import load_config_from_drive
 
-            CONFIG_FILE_ID = ""
             if hasattr(st, "secrets"):
-                CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+                st.secrets.get("CONFIG_FILE_ID")
 
             creds = load_valid_token(cfg.SCOPES)
             if creds:
