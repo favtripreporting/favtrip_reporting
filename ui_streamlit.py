@@ -406,28 +406,67 @@ def render_run_form(cfg):
                     help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
                 )
 
-        # Per‑Report‑Key Recipients
-        with st.expander("Per‑Report‑Key Recipients (optional)", expanded=False):
-            st.caption("Map **REPORT KEY (ALL CAPS)** → **Emails (comma)**.")
+        # Per-Report-Key Recipients
+        with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
+        
+            st.caption("Map **Store, Report Key → Emails (comma)**. Leave Store or Key blank for fallback.")
+        
             rows = []
+        
             if cfg.REPORT_KEY_RECIPIENTS:
-                for k, v in cfg.REPORT_KEY_RECIPIENTS.items():
-                    rows.append({"REPORT KEY (ALL CAPS)": k, "Emails (comma)": ",".join(v or [])})
+                for (store, key), emails in cfg.REPORT_KEY_RECIPIENTS.items():
+                    rows.append({
+                        "Store (optional)": store or "",
+                        "Report Key (optional)": key or "",
+                        "Emails (comma)": ",".join(emails or [])
+                    })
             else:
-                rows = [{"REPORT KEY (ALL CAPS)": "", "Emails (comma)": ""}]
+                rows = [{
+                    "Store (optional)": "",
+                    "Report Key (optional)": "",
+                    "Emails (comma)": ""
+                }]
+        
             edited_rows = st.data_editor(
                 rows,
                 num_rows="dynamic",
                 use_container_width=True,
                 key="rk_editor",
             )
-
-            rk_issues, rk_preview, rk_map_preview = _analyze_rk_rows(edited_rows)
+        
+            rk_map = {}
+            rk_preview = []
+            rk_issues = []
+        
+            for i, r in enumerate(edited_rows):
+        
+                store = (r.get("Store (optional)") or "").strip().upper()
+                key = (r.get("Report Key (optional)") or "").strip().upper()
+                emails_raw = (r.get("Emails (comma)") or "").strip()
+        
+                emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
+        
+                store_val = store if store else None
+                key_val = key if key else None
+        
+                if not store_val and not key_val:
+                    rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
+                    continue
+        
+                if not emails:
+                    rk_issues.append(f"Row {i+1}: Missing emails.")
+                    continue
+        
+                rk_map[(store_val, key_val)] = emails
+        
+                rk_preview.append(f"{(store_val, key_val)} -> {emails}")
+        
             if rk_preview:
-                with st.expander("Row template preview"):
+                with st.expander("Recipient mapping preview"):
                     st.code("\n".join(rk_preview), language="text")
+        
             if rk_issues:
-                st.warning("Per‑report‑key recipient issues:\n\n- " + "\n- ".join(rk_issues))
+                st.warning("Recipient configuration issues:\n\n- " + "\n- ".join(rk_issues))
 
         # Advanced
         with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)", expanded=False):
