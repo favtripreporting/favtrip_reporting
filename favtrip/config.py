@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -88,7 +88,7 @@ class Config:
     TEMPLATE_UPDATE_RANGE: str = "_update"
 
     # Email config
-    TO_RECIPIENTS: List[str] = ["FavtripReporting@gmail.com"]
+    TO_RECIPIENTS: List[str] = field(default_factory=lambda: ["FavtripReporting@gmail.com"])
     CC_RECIPIENTS: List[str] = None
     USE_ALL_REPORT_KEYS: bool = False
     REPORT_KEY_RUN_LIST: List[str] = ["COFFEE"]
