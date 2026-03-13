@@ -590,29 +590,25 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.DEFAULT_ORDER_RECIPIENTS
         )
     
-        msg = EmailMessage()
-        msg["Subject"] = f"Order Report – {ts} – {location} – {tag} – {store}"
-        msg["From"] = "me"
-        msg["To"] = ", ".join(recipients)
-    
-        if cfg.CC_RECIPIENTS:
-            msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
-    
-        msg.set_content(
-            f"Hi {key} team,\nYour order report for store {store} is ready.\n"
-            f"Google Sheet: {created.get('webViewLink')}\n"
-            f"Attached: {pdfname}\n—Automated"
+        email_order_report(
+            gmail_svc=gmail_svc,
+            sender="me",
+            to_list=recipients,
+            cc_list=cfg.CC_RECIPIENTS,
+            key=key,
+            tag=tag,
+            ts=ts,
+            location=store,
+            pdf_name=pdfname,
+            pdf_bytes=pdf,
+            sheet_link=created.get("webViewLink"),
+            include_full_order=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
+            full_pdf_bytes=full_pdf,
+            full_pdf_name=full_pdf_name,
         )
     
-        msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=pdfname)
-    
-        if cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL:
-            msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
-    
-        send_email(gmail_svc, "me", msg)
-    
         if logger:
-            logger.info(f"Emailed {tag} - {store}")
+            logger.info(f"Emailed {store} - {tag} to {recipients}")
     
         
     # Step 4E: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
