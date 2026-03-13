@@ -56,18 +56,17 @@ _DOW_MAP = {
     "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
 }
 
-def _parse_sheet_date(cell: str | int | float) -> datetime | None:
+def _parse_sheet_date(cell: str | int | float, include_time: bool = False) -> datetime | date | None:
     """
-    Parse a Google Sheets date/time cell into a full datetime.
-    Accepts:
-      - Google serial numbers (days since 1899-12-30)
-      - Date strings: YYYY-MM-DD, MM/DD/YYYY, MM/DD/YY
-      - DateTime strings: 12h or 24h, with or without seconds, AM/PM
-      - ISO strings (date or datetime)
+    Parse a Google Sheets date/time cell.
 
-    Returns: datetime.datetime or None if unparseable.
+    Args:
+        cell: Google Sheets date value (serial number, date string, datetime string, or ISO string)
+        include_time: If True, return datetime with time. If False (default), return date only.
+
+    Returns:
+        datetime.datetime (if include_time=True) or datetime.date (if include_time=False), or None if unparseable.
     """
-    from datetime import datetime, timedelta
 
     if cell is None or cell == "":
         return None
@@ -77,55 +76,55 @@ def _parse_sheet_date(cell: str | int | float) -> datetime | None:
         if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace(".", "", 1).isdigit()):
             serial = float(cell)
             base = datetime(1899, 12, 30)
-            # Google Sheets stores fractional days as time
-            return base + timedelta(days=serial)
+            dt = base + timedelta(days=serial)
+            return dt if include_time else dt.date()
     except Exception:
         pass
 
     s = str(cell).strip()
-    s = " ".join(s.split())  # remove weird whitespace
+    s = " ".join(s.split())  # remove extra whitespace
 
     # --- 2) Try common datetime formats (with time) ---
     dt_formats = [
-        "%m/%d/%Y %I:%M:%S %p",  # 03/01/2026 12:03:45 AM
-        "%m/%d/%Y %I:%M %p",     # 03/01/2026 12:03 AM
-        "%m/%d/%Y %H:%M:%S",     # 03/01/2026 00:03:45
-        "%m/%d/%Y %H:%M",        # 03/01/2026 00:03
-        "%Y-%m-%d %H:%M:%S",     # 2026-03-01 00:03:45
-        "%Y-%m-%d %H:%M",        # 2026-03-01 00:03
-        "%Y-%m-%dT%H:%M:%S",     # 2026-03-01T00:03:45
-        "%Y-%m-%dT%H:%M",        # 2026-03-01T00:03
+        "%m/%d/%Y %I:%M:%S %p",
+        "%m/%d/%Y %I:%M %p",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
     ]
     for fmt in dt_formats:
         try:
-            return datetime.strptime(s, fmt)
+            dt = datetime.strptime(s, fmt)
+            return dt if include_time else dt.date()
         except Exception:
             continue
 
-    # --- 3) Try date-only formats (assume time is 00:00) ---
-    date_formats = [
-        "%Y-%m-%d",   # 2026-03-01
-        "%m/%d/%Y",   # 03/01/2026
-        "%m/%d/%y",   # 03/01/26
-    ]
+    # --- 3) Try date-only formats ---
+    date_formats = ["%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]
     for fmt in date_formats:
         try:
-            return datetime.strptime(s, fmt)
+            dt = datetime.strptime(s, fmt)
+            return dt if include_time else dt.date()
         except Exception:
             continue
 
     # --- 4) ISO format fallback ---
     try:
-        return datetime.fromisoformat(s)
+        dt = datetime.fromisoformat(s)
+        return dt if include_time else dt.date()
     except Exception:
         pass
 
-    # --- 5) Last resort: take first token before a space ---
+    # --- 5) Last resort: first token before space ---
     try:
         token = s.split(" ")[0]
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        for fmt in date_formats:
             try:
-                return datetime.strptime(token, fmt)
+                dt = datetime.strptime(token, fmt)
+                return dt if include_time else dt.date()
             except Exception:
                 continue
     except Exception:
@@ -266,7 +265,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
     user_calc_sheet_id = None
-    master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+    master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE), True)
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
@@ -286,7 +285,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                 if logger:
                     logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
                 
-                user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+                user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE), True)
                 if logger:
                     logger.info(f"User Update Time: {user_update_time}")
 
