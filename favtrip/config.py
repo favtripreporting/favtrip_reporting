@@ -72,11 +72,11 @@ def _coerce_json(v: Any) -> Dict[str, Any]:
 @dataclass
 class Config:
     # IDs and basic settings
-    CALC_SPREADSHEET_ID: str
-    INCOMING_FOLDER_ID: str
-    MANAGER_REPORT_FOLDER_ID: str
-    ORDER_REPORT_FOLDER_ID: str
-    USER_FOLDER_ID: str
+    CALC_SPREADSHEET_ID: str = "1ibkGkQ2khYMJydeenJkTzC4KoLQAyBZW_esQrbjSHXs"
+    INCOMING_FOLDER_ID: str = "1jJE3r9DOHXwBdd94E6ZhxBBH9xvSjI-b"
+    MANAGER_REPORT_FOLDER_ID: str = "17Nqwo6HYe30JP0wnZYoLRG0F1s-X-IVZ"
+    ORDER_REPORT_FOLDER_ID: str = "171dqzMim-IdpB_kzjYQnzoSbW89uJTfP"
+    USER_FOLDER_ID: str = "1JBHBcnS6397ka2ITW6Wbuu2aKjbgCCHj"
 
     # GIDs, sheet metadata, timestamp settings
     GID_MANAGER_PDF: str = "1921812573"
@@ -88,14 +88,14 @@ class Config:
     TEMPLATE_UPDATE_RANGE: str = "_update"
 
     # Email config
-    TO_RECIPIENTS: List[str] = None
+    TO_RECIPIENTS: List[str] = ["FavtripReporting@gmail.com"]
     CC_RECIPIENTS: List[str] = None
     USE_ALL_REPORT_KEYS: bool = False
-    REPORT_KEY_RUN_LIST: List[str] = None
+    REPORT_KEY_RUN_LIST: List[str] = ["COFFEE"]
     REPORT_KEY_RECIPIENTS: Dict[str, List[str]] = None
     DEFAULT_ORDER_RECIPIENTS: List[str] = None
     INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL: bool = False
-    SEND_SEPARATE_FULL_ORDER_EMAIL: bool = True
+    SEND_SEPARATE_FULL_ORDER_EMAIL: bool = False
     EMAIL_MANAGER_REPORT: bool = True
 
     # Google API
