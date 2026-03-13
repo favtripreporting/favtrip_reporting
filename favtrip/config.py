@@ -192,9 +192,9 @@ class Config:
                     for k, v in overrides.items():
                         if hasattr(cfg, k):
                             setattr(cfg, k, v)
-        except Exception:
+        except Exception as e:
             # Fail-open: if Drive/token not ready yet, just return base cfg
-            pass
+            st.error(f"Drive config load failed: {e}")
 
         return cfg
 
