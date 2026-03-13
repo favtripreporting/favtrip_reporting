@@ -56,7 +56,7 @@ _DOW_MAP = {
     "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
 }
 
-def _parse_sheet_datetime(cell: str | int | float) -> datetime | None:
+def _parse_sheet_date(cell: str | int | float) -> datetime | None:
     """
     Parse a Google Sheets date/time cell into a full datetime.
     Accepts:
