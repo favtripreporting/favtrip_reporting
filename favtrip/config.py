@@ -91,7 +91,7 @@ class Config:
     TO_RECIPIENTS: List[str] = field(default_factory=lambda: ["FavtripReporting@gmail.com"])
     CC_RECIPIENTS: List[str] = None
     USE_ALL_REPORT_KEYS: bool = False
-    REPORT_KEY_RUN_LIST: List[str] = ["COFFEE"]
+    REPORT_KEY_RUN_LIST: List[str] = field(default_factory=lambda: ["COFFEE"])
     REPORT_KEY_RECIPIENTS: Dict[str, List[str]] = None
     DEFAULT_ORDER_RECIPIENTS: List[str] = None
     INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL: bool = False
