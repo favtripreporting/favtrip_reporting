@@ -182,7 +182,7 @@ class Config:
             from favtrip.config_store import load_config_from_drive
 
             if hasattr(st, "secrets"):
-                st.secrets.get("CONFIG_FILE_ID")
+                CONFIG_FILE_ID = st.secrets.get("CONFIG_FILE_ID")
 
             creds = load_valid_token(cfg.SCOPES)
             if creds:
