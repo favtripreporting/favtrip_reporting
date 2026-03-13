@@ -566,8 +566,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         recipients = _fallback_recipients(
             f"REPORT_KEY {tag}",
             candidates,
-            cfg.DEFAULT_ORDER_RECIPIENTS,
             cfg.TO_RECIPIENTS,
+            cfg.DEFAULT_ORDER_RECIPIENTS
         )
 
         msg = EmailMessage()
@@ -610,7 +610,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4F: Send Full Order if needed
     full_link = full_created.get('webViewLink')
     if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
-        to_full = _fallback_recipients("FULL order", cfg.DEFAULT_ORDER_RECIPIENTS, cfg.TO_RECIPIENTS)
+        to_full = _fallback_recipients("FULL order", cfg.TO_RECIPIENTS, cfg.DEFAULT_ORDER_RECIPIENTS)
         msg = EmailMessage()
         msg["Subject"] = f"Order Report – {ts} – {location} – FULL"
         msg["From"] = "me"
