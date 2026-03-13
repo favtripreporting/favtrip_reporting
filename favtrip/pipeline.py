@@ -701,4 +701,4 @@ for (store, key), key_rows in groups.items():
         s = elapsed % 60
         logger.info(f"Run completed in {h:02d}:{m:02d}:{s:02d}")
 
-    return RunResult(True, elapsed, location, ts, manager_link, full_link)
+return RunResult(True, elapsed, location, ts, manager_link, full_link)
