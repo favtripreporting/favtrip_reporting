@@ -160,7 +160,7 @@ def refresh_sheets_with_prefix_chunked(
     spreadsheet_id: str,
     prefix: str = "REFR: ",
     retries: int = 5,
-    chunk_cols: int = 2,
+    chunk_cols: int = 3,
     header_row: int = 1,
     logger=None,
 ):
