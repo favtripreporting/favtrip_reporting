@@ -60,7 +60,7 @@ def email_order_report(
     msg.add_alternative(
         f"""
         <p>Hi {key} team,</p>
-        <p>Your order report for store <b>{store}</b> is ready.</p>
+        <p>Your order report for store <b>{location}</b> is ready.</p>
         <p><a href="{sheet_link}">Open Google Sheet</a></p>
         <p>Attached: {pdf_name}</p>
         <p>—Automated</p>
