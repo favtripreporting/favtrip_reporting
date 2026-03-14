@@ -127,8 +127,35 @@ def copy_first_sheet_as(svc, src_spreadsheet: str, dest_spreadsheet: str, new_ti
     svc.spreadsheets().batchUpdate(spreadsheetId=dest_spreadsheet, body=body).execute()
     return new_id
 
+def refresh_sheets_with_prefix(svc, spreadsheet_id: str, prefix: str = "REFR: ", retries: int = 5, logger=None):
+    sheets = list_sheets(svc, spreadsheet_id)
+    targets = [s["properties"] for s in sheets if s["properties"]["title"].startswith(prefix)]
+    for idx, t in enumerate(targets, start=1):
+        body = {"requests": [{
+            "findReplace": {
+                "find": "=",
+                "replacement": "=",
+                "includeFormulas": True,
+                "sheetId": t["sheetId"]
+            }
+        }]}
+        attempt = 0
+        while True:
+            try:
+                svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+                if logger:
+                    logger.info(f"[{idx}/{len(targets)}] Recalc OK: {t['title']}")
+                break
+            except Exception:
+                attempt += 1
+                if attempt > retries:
+                    if logger:
+                        logger.warn(f"FAILED recalc for {t['title']}")
+                    break
+                time.sleep(1 + random.random())
 
-def refresh_sheets_with_prefix(
+
+def refresh_sheets_with_prefix_chunked(
     svc,
     spreadsheet_id: str,
     prefix: str = "REFR: ",
