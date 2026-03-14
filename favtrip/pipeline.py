@@ -452,7 +452,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Refresh reference sheets (unchanged)
     if logger:
         logger.info("Refreshing reference sheets (prefix 'REFR: ')…")
-    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix="REFR: ", logger=logger)
+        
+    refresh_sheets_with_prefix(
+        sheets_svc,
+        calc_ss_id,
+        prefix = "REFR: ",
+        logger=logger
+    )
 
     # Step 3: read location code
     location = get_value(sheets_svc, calc_ss_id, cfg.LOCATION_SHEET_TITLE, cfg.LOCATION_NAMED_RANGE)
