@@ -128,32 +128,73 @@ def copy_first_sheet_as(svc, src_spreadsheet: str, dest_spreadsheet: str, new_ti
     return new_id
 
 
-def refresh_sheets_with_prefix(svc, spreadsheet_id: str, prefix: str = "REFR: ", retries: int = 5, logger=None):
+def refresh_sheets_with_prefix(
+    svc,
+    spreadsheet_id: str,
+    prefix: str = "REFR: ",
+    retries: int = 5,
+    chunk_cols: int = 2,
+    header_row: int = 1,
+    logger=None,
+):
     sheets = list_sheets(svc, spreadsheet_id)
     targets = [s["properties"] for s in sheets if s["properties"]["title"].startswith(prefix)]
+
     for idx, t in enumerate(targets, start=1):
-        body = {"requests": [{
-            "findReplace": {
-                "find": "=",
-                "replacement": "=",
-                "includeFormulas": True,
-                "sheetId": t["sheetId"]
+        sheet_id = t["sheetId"]
+        title = t["title"]
+
+        # Get header row to detect used columns
+        resp = svc.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{title}'!{header_row}:{header_row}"
+        ).execute()
+
+        row = resp.get("values", [[]])[0]
+        col_count = len(row)
+
+        if col_count == 0:
+            continue
+
+        for start_col in range(0, col_count, chunk_cols):
+            end_col = min(start_col + chunk_cols, col_count)
+
+            body = {
+                "requests": [{
+                    "findReplace": {
+                        "find": "=",
+                        "replacement": "=",
+                        "includeFormulas": True,
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startColumnIndex": start_col,
+                            "endColumnIndex": end_col,
+                        },
+                    }
+                }]
             }
-        }]}
-        attempt = 0
-        while True:
-            try:
-                svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
-                if logger:
-                    logger.info(f"[{idx}/{len(targets)}] Recalc OK: {t['title']}")
-                break
-            except Exception:
-                attempt += 1
-                if attempt > retries:
+
+            attempt = 0
+            while True:
+                try:
+                    svc.spreadsheets().batchUpdate(
+                        spreadsheetId=spreadsheet_id,
+                        body=body
+                    ).execute()
+
                     if logger:
-                        logger.warn(f"FAILED recalc for {t['title']}")
+                        logger.info(
+                            f"[{idx}/{len(targets)}] {title} cols {start_col}-{end_col} recalculated"
+                        )
                     break
-                time.sleep(1 + random.random())
+
+                except Exception:
+                    attempt += 1
+                    if attempt > retries:
+                        if logger:
+                            logger.warning(f"FAILED recalc {title} cols {start_col}-{end_col}")
+                        break
+                    time.sleep(1 + random.random())
 
 
 def get_value(svc, spreadsheet_id: str, sheet_title: str, named_range: str) -> str:
