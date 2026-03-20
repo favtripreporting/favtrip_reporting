@@ -582,12 +582,29 @@ def render_run_form(cfg):
             # Per-key recipients from editor
             
             rk_map = {}
+            rk_preview = []  # optional: for a quick visual confirmation in the UI
+            
             for r in edited_rows:
-                key = (r.get("REPORT KEY (ALL CAPS)") or "").strip()
-                emails_csv = r.get("Emails (comma)") or ""
-                emails = _parse_emails(emails_csv)
-                if key and emails:
-                    rk_map[key] = emails
+                store = (r.get("Store (optional)") or "").strip().upper() or None
+                key   = (r.get("Report Key (optional)") or "").strip().upper() or None
+            
+                emails_raw = (r.get("Emails (comma)") or "").strip()
+                emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
+            
+                # Mirror pipeline normalization for tags (report key + store tag)
+                def clean_tag(s: str) -> str:
+                    import re
+                    s = (s or "").strip()
+                    s = re.sub(r"[^A-Za-z0-9._-]+", "-", s)
+                    return s.strip("-") or "UNKNOWN"
+            
+                store_tag = clean_tag(store) if store else None
+                key_tag   = clean_tag(key) if key else None
+            
+                if (store_tag or key_tag) and emails:
+                    # >>> THIS is the part that actually records the mapping
+                    rk_map[(store_tag, key_tag)] = emails
+            
             cfg.REPORT_KEY_RECIPIENTS = rk_map
 
             # --- ADD: warnings before kicking off the run ---
