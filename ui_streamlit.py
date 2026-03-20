@@ -259,7 +259,7 @@ def render_run_form(cfg):
             
             upload_clicked = st.button(
                 "⬆️ Upload Now",
-                use_container_width=True,
+                width='stretch',
                 disabled=(not file_selected) or st.session_state.get("freeze_ui", False),
                 type="primary",
                 key="upload_submit",
@@ -296,7 +296,7 @@ def render_run_form(cfg):
 
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
-                        st.link_button("Open uploaded Sheet", link, use_container_width=True)
+                        st.link_button("Open uploaded Sheet", link, width='stretch')
                     st.caption("This will be treated as the latest incoming report on the next run.")
                     _rerun()
                 except Exception as e:
@@ -341,7 +341,7 @@ def render_run_form(cfg):
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
             submitted = st.form_submit_button(
                 "▶️ Run Pipeline",
-                use_container_width=True,
+                width='stretch',
                 disabled=run_disabled or st.session_state.get("freeze_ui", False),
                 type="primary",
                 key="run_submit"
@@ -430,7 +430,7 @@ def render_run_form(cfg):
             edited_rows = st.data_editor(
                 rows,
                 num_rows="dynamic",
-                use_container_width=True,
+                width='stretch',
                 key="rk_editor",
             )
         
@@ -826,7 +826,7 @@ def render_run_form(cfg):
             st.session_state["last_run_log"],
             file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
             mime="text/plain",
-            use_container_width=True
+            width='stretch'
             )
 
     # Post-form controls for generic errors
@@ -834,7 +834,7 @@ def render_run_form(cfg):
     if st.session_state.get("freeze_ui", False) and not st.session_state.get("incoming_locked", False):
         retry_cols = st.columns([1, 3, 1])
         with retry_cols[1]:
-            if st.button("Retry", type="secondary", use_container_width=True):
+            if st.button("Retry", type="secondary", width='stretch'):
                 # Unfreeze, but force a new file upload before the next run
                 st.session_state["freeze_ui"] = False
                 st.session_state["incoming_uploaded_ok"] = False
@@ -925,7 +925,7 @@ if "offer_log_download" not in st.session_state:
 with st.sidebar:
     st.header("Utilities")
 
-    if st.button("Google Sign Out", type="secondary", use_container_width=True):
+    if st.button("Google Sign Out", type="secondary", width='stretch'):
         clear_token()
         for key in ["auth_required", "oauth_flow", "oauth_url", "auth_checked"]:
             if key in st.session_state:
@@ -935,11 +935,13 @@ with st.sidebar:
         except AttributeError:
             st.experimental_rerun()
     
-    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", use_container_width=True)
+    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", width='stretch')
 
-    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", use_container_width=True)
+    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
 
-    st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", use_container_width=True)
+    st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", width='stretch')
+
+    st.link_button("Open Vendor Price Book", f"https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111", width='stretch')
 
     st.checkbox(
         "Offer full log download",
@@ -959,7 +961,7 @@ if st.session_state.auth_required:
             )
 
             sign_in_ph = st.empty()
-            clicked = sign_in_ph.button("Sign in with Google", type="primary", use_container_width=True)
+            clicked = sign_in_ph.button("Sign in with Google", type="primary", width='stretch')
 
             if clicked:
                 try:
