@@ -16,13 +16,13 @@ from openpyxl import load_workbook, Workbook
 from .config import Config
 from .google_client import get_credentials, services
 from .sheets_utils import (
-    delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix,
+    delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix, refresh_sheets_with_prefix_chunked,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
     add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file
-from .gmail_utils import send_email, email_manager_report
+from .gmail_utils import send_email, email_manager_report, email_order_report
 
 CSV_MIME = "text/csv"
 
@@ -56,18 +56,17 @@ _DOW_MAP = {
     "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
 }
 
-def _parse_sheet_date(cell: str | int | float):
+def _parse_sheet_date(cell: str | int | float, include_time: bool = False) -> datetime | date | None:
     """
-    Parse a Google Sheets date cell into a date (drops time if present).
-    Accepts:
-      - Google serial numbers (days since 1899-12-30)
-      - Date strings: YYYY-MM-DD, MM/DD/YYYY, MM/DD/YY
-      - DateTime strings: with 12h or 24h time, with or without seconds, AM/PM
-      - ISO strings (date or datetime)
+    Parse a Google Sheets date/time cell.
 
-    Returns: datetime.date or None if unparseable.
+    Args:
+        cell: Google Sheets date value (serial number, date string, datetime string, or ISO string)
+        include_time: If True, return datetime with time. If False (default), return date only.
+
+    Returns:
+        datetime.datetime (if include_time=True) or datetime.date (if include_time=False), or None if unparseable.
     """
-    from datetime import datetime, timedelta
 
     if cell is None or cell == "":
         return None
@@ -77,62 +76,55 @@ def _parse_sheet_date(cell: str | int | float):
         if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace(".", "", 1).isdigit()):
             serial = float(cell)
             base = datetime(1899, 12, 30)
-            return (base + timedelta(days=serial)).date()
+            dt = base + timedelta(days=serial)
+            return dt if include_time else dt.date()
     except Exception:
         pass
 
     s = str(cell).strip()
+    s = " ".join(s.split())  # remove extra whitespace
 
-    # Quick strip for weird whitespace
-    s = " ".join(s.split())
-
-    # If a timezone suffix or trailing text exists, try to isolate the datetime token
-    # (We keep it simple: split on two spaces or take first token that contains '/')
-    if " " in s and "/" in s:
-        # Nothing fancy; the format tries below will accept the full string if they match
-        pass
-
-    # --- 2) Try common datetime formats (12h and 24h), with or without seconds ---
+    # --- 2) Try common datetime formats (with time) ---
     dt_formats = [
-        "%m/%d/%Y %I:%M:%S %p",  # 03/01/2026 12:03:45 AM
-        "%m/%d/%Y %I:%M %p",     # 03/01/2026 12:03 AM
-        "%m/%d/%Y %H:%M:%S",     # 03/01/2026 00:03:45
-        "%m/%d/%Y %H:%M",        # 03/01/2026 00:03
-        "%Y-%m-%d %H:%M:%S",     # 2026-03-01 00:03:45
-        "%Y-%m-%d %H:%M",        # 2026-03-01 00:03
-        "%Y-%m-%dT%H:%M:%S",     # 2026-03-01T00:03:45
-        "%Y-%m-%dT%H:%M",        # 2026-03-01T00:03
+        "%m/%d/%Y %I:%M:%S %p",
+        "%m/%d/%Y %I:%M %p",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
     ]
     for fmt in dt_formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            dt = datetime.strptime(s, fmt)
+            return dt if include_time else dt.date()
         except Exception:
             continue
 
     # --- 3) Try date-only formats ---
-    date_formats = [
-        "%Y-%m-%d",   # 2026-03-01
-        "%m/%d/%Y",   # 03/01/2026
-        "%m/%d/%y",   # 03/01/26
-    ]
+    date_formats = ["%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]
     for fmt in date_formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            dt = datetime.strptime(s, fmt)
+            return dt if include_time else dt.date()
         except Exception:
             continue
 
-    # --- 4) Last resort: Python ISO parser (handles 'YYYY-MM-DD' and full ISO datetimes) ---
+    # --- 4) ISO format fallback ---
     try:
-        return datetime.fromisoformat(s).date()
+        dt = datetime.fromisoformat(s)
+        return dt if include_time else dt.date()
     except Exception:
         pass
 
-    # --- 5) If still not parsed, try taking only the date token before a space ---
+    # --- 5) Last resort: first token before space ---
     try:
         token = s.split(" ")[0]
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        for fmt in date_formats:
             try:
-                return datetime.strptime(token, fmt).date()
+                dt = datetime.strptime(token, fmt)
+                return dt if include_time else dt.date()
             except Exception:
                 continue
     except Exception:
@@ -273,7 +265,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
     user_calc_sheet_id = None
-    master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+    master_update_time = _parse_sheet_date(get_value(sheets_svc, cfg.CALC_SPREADSHEET_ID, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE), True)
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
@@ -293,7 +285,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                 if logger:
                     logger.info(f"Found existing per-user workbook: {found.get('webViewLink')}")
                 
-                user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE))
+                user_update_time = _parse_sheet_date(get_value(sheets_svc, user_calc_sheet_id, cfg.LOCATION_SHEET_TITLE, cfg.TEMPLATE_UPDATE_RANGE), True)
                 if logger:
                     logger.info(f"User Update Time: {user_update_time}")
 
@@ -459,8 +451,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     # Refresh reference sheets (unchanged)
     if logger:
-        logger.info("Refreshing reference sheets (prefix 'REFR: ')…")
-    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix="REFR: ", logger=logger)
+        logger.info("Refreshing reference sheets (prefix 'REFR: ' or 'REFC ')…")
+        
+    
+    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix = "REFR: ", logger=logger)
+    
+    refresh_sheets_with_prefix_chunked(
+        sheets_svc,
+        calc_ss_id,
+        prefix = "REFC: ",
+        logger=logger
+    )
 
     # Step 3: read location code
     location = get_value(sheets_svc, calc_ss_id, cfg.LOCATION_SHEET_TITLE, cfg.LOCATION_NAMED_RANGE)
@@ -496,101 +497,121 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4D: Create per-report-key outputs (CSV) and email
 
     # --- Parse the master CSV into rows of dicts ---
-
-    # master_csv_bytes = export_sheet(..., "csv")
+    
     text = master_csv_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
-
+    
     rows_list = list(reader)
     if not rows_list:
         raise RuntimeError("CSV has no rows.")
-
+    
     headers = [h.strip() for h in rows_list[0]]
     if not headers:
         raise RuntimeError("CSV has no header.")
-
-    # Find 'report_key' column, case-insensitive
+    
+    # Find required columns (case-insensitive)
     lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+    
     if "report_key" not in lower_idx:
         raise RuntimeError("Report_Key column missing.")
+    if "store" not in lower_idx:
+        raise RuntimeError("Store column missing.")
+    
     report_idx = lower_idx["report_key"]
-
+    store_idx = lower_idx["store"]
+    
+    # Headers to export (exclude report_key)
+    export_headers = [h for i, h in enumerate(headers) if i != report_idx]
+    
     # Materialize rows as list[dict]
     rows = []
     for row in rows_list[1:]:
         rows.append({headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))})
-
-    # Group by report key
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
-        groups.setdefault(key.upper(), []).append(r)
-
-
     
-    for key, key_rows in groups.items():
-        if not cfg.USE_ALL_REPORT_KEYS and key.upper() not in (cfg.REPORT_KEY_RUN_LIST or []):
+    # Group by (report_key, store)
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        report_key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
+        store = (str(r.get(headers[store_idx]) or "").strip()) or "UNKNOWN"
+        groups.setdefault((store.upper(), report_key.upper()), []).append(r)
+    
+    
+    for (store, key), key_rows in groups.items():
+    
+        if not cfg.USE_ALL_REPORT_KEYS and key not in (cfg.REPORT_KEY_RUN_LIST or []):
             continue
-
+    
         # Build CSV text in memory
         sio = io.StringIO()
         w = csv.writer(sio, lineterminator="\n")
-        w.writerow(headers)
+    
+        w.writerow(export_headers)
+    
         for rr in key_rows:
-            w.writerow([rr.get(h, "") for h in headers])
-
+            w.writerow([rr.get(h, "") for h in export_headers])
+    
         key_csv_bytes = sio.getvalue().encode("utf-8")
-        tag = clean_tag(key)  # already upper
-
-        csv_name = f"Order_Report_{ts}_{location}_{tag}.csv"
-
+    
+        tag = clean_tag(key)
+        store_tag = clean_tag(store)
+    
+        csv_name = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.csv"
+    
         # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
         created = upload_to_drive(
             drive_svc, key_csv_bytes, csv_name,
             CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True
         )
+    
         file_id = created["id"]
         gid = first_gid(sheets_svc, file_id)
-
-
-        # Export the Google Sheet as PDF (unchanged behavior)
+    
+        # Export the Google Sheet as PDF
         pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{ts}_{location}_{tag}.pdf"
-
-        # Prefer per‑key recipients; else default; else TO
+        pdfname = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.pdf"
+    
+        # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
         if cfg.REPORT_KEY_RECIPIENTS:
-            # The keys in UI are upper-cased; normalize here too
-            candidates = cfg.REPORT_KEY_RECIPIENTS.get(tag)
-
+            store_key = (store_tag, tag)
+            key_only = (None, tag)
+            store_only = (store_tag, None)
+        
+            if store_key in cfg.REPORT_KEY_RECIPIENTS:
+                candidates = cfg.REPORT_KEY_RECIPIENTS[store_key]
+            elif key_only in cfg.REPORT_KEY_RECIPIENTS:
+                candidates = cfg.REPORT_KEY_RECIPIENTS[key_only]
+            elif store_only in cfg.REPORT_KEY_RECIPIENTS:
+                candidates = cfg.REPORT_KEY_RECIPIENTS[store_only]
+    
         recipients = _fallback_recipients(
             f"REPORT_KEY {tag}",
             candidates,
             cfg.TO_RECIPIENTS,
             cfg.DEFAULT_ORDER_RECIPIENTS
         )
-
-        msg = EmailMessage()
-        msg["Subject"] = f"Order Report – {ts} – {location} – {tag}"
-        msg["From"] = "me"
-        msg["To"] = ", ".join(recipients)
-        if cfg.CC_RECIPIENTS:
-            msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
-
-        # Keep the Google Sheet link; PDF remains the attached artifact
-        msg.set_content(
-            f"Hi {key} team,\nYour order report is ready. \n"
-            f"Google Sheet: {created.get('webViewLink')}\n"
-            f"Attached: {pdfname}\n—Automated"
+    
+        email_order_report(
+            gmail_svc=gmail_svc,
+            sender="me",
+            to_list=recipients,
+            cc_list=cfg.CC_RECIPIENTS,
+            key=key,
+            tag=tag,
+            ts=ts,
+            location=store,
+            pdf_name=pdfname,
+            pdf_bytes=pdf,
+            sheet_link=created.get("webViewLink"),
+            include_full_order=cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
+            full_pdf_bytes=full_pdf,
+            full_pdf_name=full_pdf_name,
         )
-        msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=pdfname)
-        if cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL:
-            msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
-
-        send_email(gmail_svc, "me", msg)
+    
         if logger:
-            logger.info(f"Emailed {tag}")
-
+            logger.info(f"Emailed {store} - {tag} to {recipients}")
+    
+        
     # Step 4E: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
     if getattr(cfg, "EMAIL_MANAGER_REPORT", True):
         to_list = _fallback_recipients("Manager Report (TO_RECIPIENTS)", cfg.TO_RECIPIENTS)
