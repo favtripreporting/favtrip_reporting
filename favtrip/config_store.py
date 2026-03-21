@@ -1,4 +1,102 @@
-# favtrip/config_store.py
+""" 
+config_store
+======================================
+This module provides small, focused helpers for reading and writing a JSON
+configuration file stored in Google Drive using the `googleapiclient` (a.k.a.
+Google API Python Client). It supports both direct file-ID addressing and a
+convention-based "find by name" workflow using the constants
+`DEFAULT_CONFIG_FILENAME` and `DEFAULT_MIMETYPE`.
+
+Primary capabilities
+--------------------
+- **load_config_from_drive(...)**: Fetches and parses JSON from a Drive file.
+  If no `file_id` is provided, the newest (by `modifiedTime`) non-trashed file
+  named `DEFAULT_CONFIG_FILENAME` with MIME type `DEFAULT_MIMETYPE` is used.
+  Returns an empty dict `{}` if the file does not exist, is empty, or contains
+  invalid JSON.
+
+- **save_config_to_drive(...)**: Writes JSON to Drive, either updating an
+  existing file (by `file_id` or the latest matching name) or creating a new
+  file. Returns the Drive file ID of the written resource. Supports optionally
+  placing newly created files into a specific parent folder.
+
+Design notes
+------------
+- **Non-throwing reads**: `load_config_from_drive` is intentionally resilient:
+  it catches JSON parsing errors and returns `{}` for "not found" or invalid
+  content scenarios to simplify caller logic.
+- **Upsert semantics on save**: If `file_id` is not given, `save_config_to_drive`
+  attempts to update the newest matching file by name and MIME type; if none is
+  found, it creates a new one (optionally under `parent_folder_id`).
+- **Streaming I/O**: Uses `MediaIoBaseDownload`/`MediaIoBaseUpload` for
+  efficient transfer and compatibility with large files (even though configs
+  are typically small).
+
+
+Functions
+---------
+def load_config_from_drive(
+    drive: googleapiclient.discovery.Resource,
+    file_id: Optional[str] = None
+) -> Dict[str, Any]:
+    
+    Read a JSON config from Google Drive.
+
+    Behavior:
+      - If `file_id` is provided, reads that exact file.
+      - Otherwise, discovers the newest non-trashed file with:
+           name == DEFAULT_CONFIG_FILENAME and mimeType == DEFAULT_MIMETYPE.
+      - Returns `{}` if the file is not found, empty, or contains invalid JSON.
+
+    Parameters:
+      drive: An authenticated Google Drive v3 `Resource` client.
+      file_id: Optional Drive file ID to read directly.
+
+    Returns:
+      A `dict` representing the parsed JSON configuration, or `{}` on failure.
+    
+
+save_config_to_drive(
+    drive: googleapiclient.discovery.Resource,
+    data: Dict[str, Any],
+    file_id: Optional[str] = None,
+    parent_folder_id: Optional[str] = None
+) -> str:
+    
+    Write a JSON config to Google Drive (update or create).
+
+    Behavior:
+      - If `file_id` is provided, updates that file's content.
+      - Else, attempts to find the newest matching file by name/mimeType and
+        updates it.
+      - If no matching file exists, creates a new file named
+        `DEFAULT_CONFIG_FILENAME` (optionally under `parent_folder_id`).
+
+    Parameters:
+      drive: An authenticated Google Drive v3 `Resource` client.
+      data: A JSON-serializable dictionary to write.
+      file_id: Optional Drive file ID to update directly.
+      parent_folder_id: Optional parent folder ID to place a newly created file.
+
+    Returns:
+      The Drive file ID (`str`) of the updated or created file.
+    
+
+Error handling & edge cases
+---------------------------
+- **Network/API errors**: This module defers to `googleapiclient` exceptions
+  for request/transport failures. Callers may wish to wrap calls with retry
+  logic (e.g., exponential backoff) or central error handling.
+- **Invalid JSON on read**: Returns `{}` rather than raising, to keep consumers
+  simple and robust to manual edits or empty files.
+- **Encoding**: Files are read as UTF-8 (with replacement for invalid bytes)
+  and written as UTF-8 with `ensure_ascii=False` to preserve Unicode.
+- **Trashed files**: Explicitly filtered out during "discover by name".
+
+
+"""
+
+
 from __future__ import annotations
 import io
 import json

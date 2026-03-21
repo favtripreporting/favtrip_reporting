@@ -1,3 +1,76 @@
+"""
+FavTrip Reporting Streamlit UI
+================================
+
+Overview
+--------
+This Streamlit app is the front-end for the FavTrip Reporting pipeline. It lets an authenticated
+Google user upload a Modisoft "Live Items Report", configure who receives emails for each report
+(or fallback recipients), tune advanced IDs/GIDs/time settings, and then orchestrate the
+`favtrip.pipeline.run_pipeline` execution while streaming status updates and a timer.
+
+Design goals
+------------
+* **No local secrets in code**: OAuth client JSON is read from `st.secrets["GOOGLE_CREDENTIALS"]` and
+  the app base URL from `st.secrets["APP_BASE_URL"]`. Optional `CONFIG_FILE_ID` pins a Drive JSON that
+  stores editable defaults.
+* **Constrained, clear UX**: A two-step flow (Upload ➜ Run). The Run button is enabled only after a
+  successful upload, reducing accidental runs on stale input.
+* **Robust OAuth (PKCE)**: Uses an explicit code verifier/challenge and encodes the verifier inside
+  the `state` payload to remain stateless across redirects.
+* **Operational safety**: Detects common mistakes (e.g., invalid email inputs, duplicate keys,
+  wrong-week uploads) and surfaces warnings or blocks execution accordingly.
+
+Key concepts
+------------
+* **Incoming file**: The uploaded Modisoft report (CSV/XLSX). It is pushed to a configured Google
+  Drive folder and optionally converted to a Google Sheet for the downstream pipeline.
+* **Report Keys**: Categories/tags used by the pipeline to partition output and email recipients.
+  You can either process *all* keys present in the data or restrict to a comma-separated subset.
+* **Per-Report-Key Recipients**: Optional overrides that map `(Store, Report Key)` pairs to recipient
+  lists. Fallback recipients apply where no specific mapping exists.
+* **Drive-backed defaults**: The app can persist your current UI settings to a JSON in Drive. Supplying
+  `CONFIG_FILE_ID` in Streamlit secrets will cause subsequent sessions to update that exact file.
+
+Security model
+--------------
+* OAuth scopes are supplied by `Config` and used to mint a user token saved locally as `token.json`.
+* The app opens the Google consent screen in a **new tab**, and that tab becomes the main app after
+  redirect. Tokens are not sent back to the opener page; they are stored only in the process serving
+  the tab that completed OAuth.
+
+Operational notes
+-----------------
+* If a run fails with the message "Please only upload 1 or 2 full weeks of data", the UI locks to
+  prevent immediate re-runs. Use **Retry** to clear the lock and upload a correct file.
+* Set **Offer full log download** (sidebar) to expose a download button for `last_run.log` after a run.
+* The **green Run button** appears once a fresh upload succeeds, indicating the pipeline is ready to run.
+
+Dependencies & integration points
+---------------------------------
+* `favtrip.google_client`: token loading/clearing and service factories (Drive, Sheets, Gmail)
+* `favtrip.config`: the central configuration object. `Config.load()` merges defaults, secrets, and any
+  Drive-stored overrides.
+* `favtrip.drive_utils.upload_to_drive`: uploads the incoming report and (optionally) converts to Sheet.
+* `favtrip.pipeline.run_pipeline`: the orchestrated processing step; returns an object with links and
+  timing information used to render the result panel.
+
+This file intentionally includes **documentation-only** additions (module docstring and inline comments)
+without modifying the executable logic.
+"""
+
+# ------------------------------
+# Quick-start for maintainers
+# ------------------------------
+# 1) Configure Streamlit secrets:
+#    - APP_BASE_URL: The exact external base URL of your deployed app (with trailing slash normalization).
+#    - GOOGLE_CREDENTIALS: A JSON string containing your OAuth client configuration.
+#    - CONFIG_FILE_ID (optional): The Drive file ID for persisted UI defaults.
+# 2) Grant your Google Cloud OAuth Client access to the app origin and redirect URI.
+# 3) Run: `streamlit run ui_streamlit.py` (ensure the backend `favtrip` package is importable).
+# 4) Upload a Modisoft report, adjust recipients and options, then click **Run Pipeline**.
+
+
 import os
 import time
 import threading
@@ -649,7 +722,7 @@ def render_run_form(cfg):
                         # Drive service
                         _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
 
-                        # What we persist (the fields you asked to move out of Secrets)
+                        # What we persist
                         drive_defaults = {
                             "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
                             "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
