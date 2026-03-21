@@ -1,3 +1,77 @@
+"""
+Pipeline
+======================================
+
+Overview
+--------
+This is the main workhorse file that the user interface runs. This pipeline automates a weekly reporting workflow around Google Workspace
+(Drive, Sheets, and Gmail) for store ordering. At a high level it:
+
+1. Authenticates to Google APIs and locates the latest incoming spreadsheet in
+   a designated Drive folder.
+2. Validates the data contains **one or two full weeks** of daily records and
+   that the first/last days match your configured week boundaries.
+3. Prepares (or rolls) a per-user **Calculations** workbook, then populates the
+   **Current Week** and (optionally) **Last Week** sheets using the incoming
+   data.
+4. Refreshes reference sheets by prefix (e.g., `REFR: `, `REFC: `).
+5. Exports and uploads:
+   - Manager report (**PDF**)
+   - Full order (**CSV** → Google Sheet) and a **PDF** rendition
+   - Per **report key** CSVs (converted to Sheets) and their PDFs
+6. Emails the manager report and per-report-key packages to the appropriate
+   recipients (with configurable CCs and an option to include the Full order PDF
+   in each email).
+7. Performs Drive housekeeping (trash the consumed incoming file and prune old
+   items from configured folders).
+
+Key Components
+--------------
+- **Configuration (`Config`)**: Centralizes IDs, options, and behavior toggles
+  consumed throughout the pipeline (folder IDs, spreadsheet IDs, GIDs, named
+  ranges, week boundary settings, time-to-live values, and email recipient
+  settings).
+- **Google Clients**: `get_credentials()` and `services()` establish authorized
+  clients for Sheets, Drive, and Gmail using the configured scopes and timeouts.
+- **Sheets Utilities**: Helpers to copy, add, delete, and write sheets; retrieve
+  values; and coerce specific columns as text (e.g., `Scan Code`).
+- **Drive Utilities**: Locate the latest file, upload byte content as Drive
+  files (with optional conversion to Sheets), rename, copy between folders,
+  trash, and clean folders by age.
+- **Gmail Utilities**: Compose and send emails with attachments and Drive links.
+
+Validation & Planning
+---------------------
+The pipeline inspects the first tab of the incoming report and:
+- Locates the header row where the first cell equals **"Store"** and the
+  **Date** column.
+- Parses dates (string, serial, ISO) and collects the unique calendar days.
+- Ensures the first and last dates align with configured week boundaries
+  (e.g., Monday–Sunday), raising `IncomingDataValidationError` if not.
+- Determines whether the upload covers **one** or **two** weeks (7 or 14 unique
+  days) and plans sheet operations accordingly.
+
+Per‑User Workbook Behavior
+--------------------------
+If `USER_FOLDER_ID` is set, the pipeline attempts to locate (by the user's
+email) a dedicated Calculations workbook in that folder; if absent or outdated
+compared to the master template, it duplicates/refreshes it while preserving the
+`Current Week` and `Last Week` data tabs from the user's prior workbook.
+
+Email Routing & Fallbacks
+-------------------------
+Recipients are selected in the following order (first non-empty wins):
+1. A store+report‑key specific list (from `REPORT_KEY_RECIPIENTS`), then
+   key‑only, then store‑only
+2. `TO_RECIPIENTS`
+3. `DEFAULT_ORDER_RECIPIENTS`
+
+Invalid emails and stray commas are sanitized. Missing recipients lead to a
+friendly `ValueError` that explains how to supply valid addresses.
+
+"""
+
+
 from __future__ import annotations
 import pandas
 import csv
