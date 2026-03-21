@@ -1,3 +1,166 @@
+"""
+config
+======================================
+
+Configuration loader and serializer for FavTrip reporting apps.
+
+This module centralizes all runtime configuration for both local development
+and cloud deployments (e.g., Streamlit Community Cloud). It provides a single,
+typed `Config` dataclass plus helper functions that safely read from multiple
+sources, coerce values to the expected Python types, and (optionally) overlay
+a remote, Google Drive–hosted JSON configuration at runtime.
+
+The loader is designed to be:
+- **Layered**: Values are pulled from three tiers, in this order:
+  1) Streamlit `st.secrets` (preferred in cloud; values may already be typed)
+  2) Process environment and/or a local `.env` file (string-based; coerced) #Sandbox use only
+  3) A Google Drive JSON override, applied last if credentials and
+     a config file are available
+- **Safe**: Missing keys never raise; reasonable defaults are used instead.
+- **Type-aware**: Bools, lists, and dicts are parsed/coerced consistently so the
+  same code works with typed TOML (in `st.secrets`) and string-based `.env`.
+
+-------------------------------------------------------------------------------
+Core API
+-------------------------------------------------------------------------------
+
+- `_get_secret(key: str, default: Any = None) -> Any`
+  Attempts to read `key` from `streamlit.secrets` (if Streamlit is present and
+  has `secrets`), else falls back to `os.getenv(key, default)`. Never raises for
+  missing keys; always returns a value (possibly `default`). Streamlit import is
+  lazy to avoid a hard dependency for non-Streamlit contexts.
+
+- `_coerce_bool(v: Any, default: bool = False) -> bool`
+  Accepts `bool | str | int | None` and returns a Python `bool`.
+  Truthy strings (case-insensitive, trimmed) include:
+  `{"1", "true", "yes", "on", "y", "t"}`. Non-parseable inputs fall back to
+  `default`.
+
+- `_coerce_csv(v: Any) -> List[str]`
+  Accepts a list/tuple (already structured) or a comma-separated string and
+  yields a list of **trimmed** strings. `None`/empty returns `[]`.
+
+- `_coerce_json(v: Any) -> Dict[str, Any]`
+  Accepts a `dict` or a JSON string. Returns a `dict`; parse failures yield `{}`.
+
+- `@dataclass class Config`
+  A top-level dataclass holding all tunable settings for the application:
+  * **Drive/Sheets IDs**:
+    - `CALC_SPREADSHEET_ID`, `INCOMING_FOLDER_ID`, `MANAGER_REPORT_FOLDER_ID`,
+      `ORDER_REPORT_FOLDER_ID`, `USER_FOLDER_ID`
+  * **GIDs, sheet metadata, timestamps**:
+    - `GID_MANAGER_PDF`, `GID_ORDER_CSV`, `LOCATION_SHEET_TITLE`,
+      `LOCATION_NAMED_RANGE`, `TEMPLATE_UPDATE_RANGE`
+    - `TIMESTAMP_TZ` (e.g., "America/Chicago")
+    - `TIMESTAMP_FMT` (default "%Y-%m-%d-%I-%M-%p")
+  * **Email & distribution**:
+    - `TO_RECIPIENTS`, `CC_RECIPIENTS`, `USE_ALL_REPORT_KEYS`,
+      `REPORT_KEY_RUN_LIST`, `REPORT_KEY_RECIPIENTS`,
+      `DEFAULT_ORDER_RECIPIENTS`
+    - `INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL`,
+      `SEND_SEPARATE_FULL_ORDER_EMAIL`, `EMAIL_MANAGER_REPORT`
+  * **Google API**:
+    - `SCOPES` (Drive/Sheets/Gmail), `FORCE_REAUTH`,
+      `REDIRECT_PORT`, `HTTP_TIMEOUT_SECONDS`
+  * **Advanced intake**:
+    - `USE_AUTO_ROLLOVER_IF_ONE_WEEK`,
+      `START_DAY_OF_WEEK`, `END_DAY_OF_WEEK`
+      (Accepted values include: Sunday, Monday, Tuesday, Wednesday, Thursday,
+      Friday, Saturday, Any)
+  * **Cleanup (days)**:
+    - `OUTPUT_TIME_TO_LIFE`, `FAILED_INPUT_TIME_TO_LIFE`, `USER_TIME_TO_LIFE`
+
+  Defaults are provided for all fields. When loading from secrets or `.env`,
+  values are coerced into the correct types; lists and dicts are parsed as
+  necessary. `REPORT_KEY_RUN_LIST` values are uppercased to reduce downstream
+  casing issues.
+
+- `Config.load(env_path: Optional[pathlib.Path] = None) -> Config`
+  Loads the final, effective configuration via a layered merge:
+  1) Loads a local `.env` file from `env_path` (default: `cwd/.env`) using
+     `python-dotenv` with `override=False` (so existing process env vars win).
+  2) Reads settings from `st.secrets` if available; otherwise from environment.
+     Values are passed through the coercers defined above.
+  3) Attempts to overlay a Google Drive–hosted JSON config:
+     - Uses `favtrip.google_client.load_valid_token` and `services` to obtain a
+       Drive client (respecting `HTTP_TIMEOUT_SECONDS`).
+     - Reads a JSON dict via `favtrip.config_store.load_config_from_drive`,
+       optionally using `CONFIG_FILE_ID` from `st.secrets` if present.
+     - Keys in the override dict that match `Config` attributes replace
+       previously loaded values.
+     - On any failure (no token, network error, file missing, etc.), the loader
+       **fails open** and returns the base config without raising (best-effort).
+
+- `Config.to_env() -> str`
+  Serializes the current configuration to a string in `.env` format. Collections
+  are flattened—lists are joined with commas, and dicts are JSON-encoded—so the
+  output can be written to disk and re-read later in a purely string-based env.
+
+- `Config.save(env_path: Optional[pathlib.Path] = None) -> None`
+  Convenience wrapper around `to_env()` that writes the serialized configuration
+  to `env_path` (default: `cwd/.env`, UTF-8).
+
+-------------------------------------------------------------------------------
+Environment / Secrets Reference (all optional; sensible defaults apply)
+-------------------------------------------------------------------------------
+
+Drive / Sheets IDs:
+- `CALC_SPREADSHEET_ID`, `INCOMING_FOLDER_ID`, `MANAGER_REPORT_FOLDER_ID`,
+  `ORDER_REPORT_FOLDER_ID`, `USER_FOLDER_ID`
+
+Sheet metadata & timestamps:
+- `GID_MANAGER_PDF`, `GID_ORDER_CSV`, `LOCATION_SHEET_TITLE`,
+  `LOCATION_NAMED_RANGE`, `TEMPLATE_UPDATE_RANGE`
+- `TIMESTAMP_TZ`, `TIMESTAMP_FMT`
+
+Email & distribution:
+- `TO_RECIPIENTS` (CSV), `CC_RECIPIENTS` (CSV)
+- `USE_ALL_REPORT_KEYS` (bool)
+- `REPORT_KEY_RUN_LIST` (CSV; uppercased during load)
+- `REPORT_KEY_RECIPIENTS` (JSON dict)
+- `DEFAULT_ORDER_RECIPIENTS` (CSV)
+- `INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL` (bool)
+- `SEND_SEPARATE_FULL_ORDER_EMAIL` (bool)
+- `EMAIL_MANAGER_REPORT` (bool)
+
+Google API:
+- `SCOPES` (CSV; typical: Drive/Sheets/Gmail send)
+- `FORCE_REAUTH` (bool)
+- `REDIRECT_PORT` (int)
+- `HTTP_TIMEOUT_SECONDS` (int)
+
+Advanced intake / rollover:
+- `USE_AUTO_ROLLOVER_IF_ONE_WEEK` (bool)
+- `START_DAY_OF_WEEK`, `END_DAY_OF_WEEK`
+  (Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Any)
+
+Cleanup (days):
+- `OUTPUT_TIME_TO_LIFE`, `FAILED_INPUT_TIME_TO_LIFE`, `USER_TIME_TO_LIFE`
+
+Drive override:
+- `CONFIG_FILE_ID` (usually provided via `st.secrets`, if using a specific file)
+
+-------------------------------------------------------------------------------
+Operational Notes
+-------------------------------------------------------------------------------
+
+- **Lazy imports**: `streamlit` and Google client utilities are imported inside
+  the loader so the module remains usable in non-Streamlit or headless contexts.
+- **Fail-open Drive overrides**: If Drive credentials are unavailable or an
+  override file cannot be retrieved/parsed, the loader returns the base config
+  without raising (best-effort behavior).
+- **Deterministic parsing**: Coercers are idempotent for already-typed values.
+  For example, booleans in TOML remain booleans; CSV strings are split and
+  trimmed; JSON strings are parsed into dicts.
+- **Case normalization**: `REPORT_KEY_RUN_LIST` is uppercased at load time to
+  minimize case-related mismatches elsewhere in the app.
+
+Import this module early in your app to construct a single, consistent
+`Config` instance and pass it through to components that require configuration.
+
+"""
+
+
 from __future__ import annotations
 
 import os
