@@ -1,3 +1,163 @@
+"""
+sheet_utils
+======================================
+
+Google Sheets utility helpers for copying sheets, refreshing formulas, and basic row/values ops.
+
+This module wraps common tasks against the Google Sheets API v4 (via an authenticated
+`svc = googleapiclient.discovery.build("sheets", "v4", ...)` service), including:
+
+- Discovering and selecting sheets within a spreadsheet:
+  • list_sheets() – list sheet metadata
+  • get_sheet() – find a sheet's properties by title
+  • first_gid(), get_first_sheet_meta() – convenient access to the first sheet
+
+- Sheet lifecycle utilities:
+  • delete_sheet() – remove a sheet by title
+  • add_blank_sheet() – create a blank sheet with a title and grid size
+  • add_or_replace_sheet() – delete a sheet if it exists, then add a fresh one
+  • copy_sheet_as() – duplicate a sheet within a spreadsheet and rename it
+  • copy_first_sheet_as() – copy the first sheet to another spreadsheet and rename it
+  • copy_sheet_to_another_spreadsheet() – copy a sheet by title across spreadsheets with optional rename
+
+- Values and range helpers:
+  • get_values_2d() – read a 2D values range from a sheet
+  • put_values_2d() – write a 2D values matrix starting at A1
+  • get_value() – try a named range first, then fall back to the sheet’s first column
+
+- Row manipulation:
+  • delete_rows_range() – delete a contiguous 0-based row range (end exclusive)
+  • delete_row_indices() – delete multiple absolute row indices (descending order)
+
+- Formula recomputation workarounds:
+  • refresh_sheets_with_prefix() – trigger recalc on all sheets whose titles start with a prefix
+  • refresh_sheets_with_prefix_chunked() – same, but in column chunks (useful for large sheets)
+  • _force_column_as_text() – coerce a column (matched by header name) to text by prefixing values with "'"
+
+------------------------------------------------------------------------------
+Requirements & assumptions
+------------------------------------------------------------------------------
+- Authentication: All functions expect a pre-authenticated Sheets API service object
+  (`svc`) with permissions to read/update the target spreadsheet(s).
+- Access: The caller (service account or user) needs editor access to any
+  spreadsheet being modified or receiving copies.
+- API: These helpers use the Sheets API v4 `spreadsheets` and `values` methods,
+  including `get`, `batchUpdate`, and `copyTo`.
+- Error handling: Most functions surface API errors as exceptions from the client
+  library. Select functions include simple retry loops (with jitter) on write
+  operations to reduce transient failures.
+- Idempotency: Destructive operations (e.g., delete) are NOT idempotent. Use with care.
+- Indexing: Row/column indices in batchUpdate ranges are 0-based and end-exclusive,
+  mirroring the Sheets API.
+
+------------------------------------------------------------------------------
+Key behaviors & caveats
+------------------------------------------------------------------------------
+- copy_sheet_as() and copy_sheet_to_another_spreadsheet():
+  - Return the new sheetId (int) on success, or None if the source sheet isn't found
+    or the API returns an unexpected structure.
+  - If you pass a `new_title` that collides with an existing sheet title, the request
+    only attempts to update title; it does not resolve conflicts.
+- refresh_sheets_with_prefix*():
+  - These functions "poke" formulas by performing a find/replace of "=" -> "="
+    (no visible change), prompting recalculation.
+  - The chunked variant determines the number of used columns based on a header row.
+    Adjust `header_row` and `chunk_cols` to control scope and batching.
+- get_value():
+  - First attempts to read a named range. If not found or empty, falls back to
+    the first column (A) of the provided `sheet_title`. Returns "UNKNOWN" if empty.
+
+------------------------------------------------------------------------------
+Function reference (selected)
+------------------------------------------------------------------------------
+list_sheets(svc, spreadsheet_id) -> List[Dict[str, Any]]:
+    Fetch metadata for all sheets in a spreadsheet.
+
+get_sheet(sheets, title) -> Optional[Dict[str, Any]]:
+    Return the `properties` of the sheet whose title matches `title`, else None.
+
+delete_sheet(svc, spreadsheet_id, title) -> None:
+    Delete the sheet with the provided title if it exists.
+
+copy_sheet_as(svc, spreadsheet_id, src_title, new_title) -> Optional[int]:
+    Copy a sheet (by title) within the same spreadsheet, rename it, and return its sheetId.
+
+copy_sheet_to_another_spreadsheet(
+    svc, src_spreadsheet_id, src_title, dest_spreadsheet_id, new_title=None
+) -> Optional[int]:
+    Copy a sheet (by title) from one spreadsheet to another, optionally renaming it.
+
+copy_first_sheet_as(svc, src_spreadsheet, dest_spreadsheet, new_title) -> int:
+    Copy the first sheet of the source into the destination and rename it. Returns new sheetId.
+
+get_values_2d(svc, spreadsheet_id, sheet_title, a1_range="A:Z") -> list[list]:
+    Return a 2D array of values for the A1 range within the specified sheet.
+
+put_values_2d(svc, spreadsheet_id, sheet_title, values) -> None:
+    Write a 2D matrix to the sheet starting at A1 using USER_ENTERED semantics.
+
+delete_rows_range(svc, spreadsheet_id, sheet_id, start_row_index, end_row_index) -> None:
+    Delete 0-based rows in [start_row_index, end_row_index).
+
+delete_row_indices(svc, spreadsheet_id, sheet_id, row_indices_desc) -> None:
+    Delete multiple absolute row indices (0-based). Internally sorts in descending order.
+
+refresh_sheets_with_prefix(
+    svc, spreadsheet_id, prefix="REFR: ", retries=5, logger=None
+) -> None:
+    For each sheet whose title starts with prefix, forces formula recalc with retries.
+
+refresh_sheets_with_prefix_chunked(
+    svc, spreadsheet_id, prefix="REFR: ", retries=5, chunk_cols=3, header_row=1, logger=None
+) -> None:
+    As above, but operates on small column ranges per attempt to reduce request size/timeouts.
+
+_force_column_as_text(header, rows, header_name) -> list[list]:
+    Return a new rows array where the column matching `header_name` is coerced to text by
+    prefixing non-blank values with a single apostrophe.
+
+------------------------------------------------------------------------------
+Usage examples
+------------------------------------------------------------------------------
+# 1) Copy a sheet within the same spreadsheet and rename it
+new_id = copy_sheet_as(svc, spreadsheet_id="AAA...", src_title="Template", new_title="Run 2026-03-21")
+
+# 2) Copy a sheet from one spreadsheet to another and rename it
+new_id = copy_sheet_to_another_spreadsheet(
+    svc,
+    src_spreadsheet_id="SRC_ID",
+    src_title="Report",
+    dest_spreadsheet_id="DEST_ID",
+    new_title="Report (Copy)"
+)
+
+# 3) Force formula recalculation on all sheets prefixed with "REFR: "
+refresh_sheets_with_prefix(svc, spreadsheet_id="AAA...", prefix="REFR: ", retries=3)
+
+# 4) Write a 2D table to a sheet starting at A1
+put_values_2d(svc, spreadsheet_id="AAA...", sheet_title="Data", values=[["A","B"], [1,2], [3,4]])
+
+# 5) Delete rows 10..20 (0-based, end-exclusive)
+delete_rows_range(svc, spreadsheet_id="AAA...", sheet_id=123456789, start_row_index=10, end_row_index=21)
+
+------------------------------------------------------------------------------
+Logging & retries
+------------------------------------------------------------------------------
+Some functions accept an optional `logger` (any object exposing `.info`, `.warning`, or `.warn`)
+to receive progress messages. Retry loops use a simple exponential-ish backoff with random jitter
+(`time.sleep(1 + random.random())`) up to `retries` attempts.
+
+------------------------------------------------------------------------------
+Safety notes
+------------------------------------------------------------------------------
+- Destructive operations (delete/replace) cannot be undone by this module. Make sure you
+  have backups and required permissions before running them in production.
+- Title-based targeting assumes unique sheet titles. Name collisions can lead to unexpected results.
+- For very large sheets, consider the chunked refresh function to avoid request size/timeouts.
+
+"""
+
+
 from __future__ import annotations
 import random
 import time
