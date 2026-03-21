@@ -1,3 +1,54 @@
+"""
+logger
+======================================
+This module provides two dataclasses—`LogEvent` and `StatusLogger`—to record simple,
+human-readable status messages during a process or script run. It is designed to be:
+
+- **Simple**: minimal API (`info`, `warn`, `error`) and a small in-memory log.
+- **Immediate**: console prints occur synchronously; file writes are line-buffered and flushed.
+- **Fail-open**: if a log file cannot be opened or written, logging proceeds to console and memory.
+- **Portable**: standard library only (dataclasses, datetime, typing).
+
+-------------------------------------------------------------------------------
+Data Model
+-------------------------------------------------------------------------------
+- LogEvent
+    - ts (datetime.datetime): Timestamp captured via `datetime.now()` when the event is recorded.
+      Note: this is a **naive** datetime in local time.
+    - level (str): Log level label (e.g., "INFO", "WARN", "ERROR").
+    - message (str): The event text.
+
+- StatusLogger
+    - events (list[LogEvent]): In-memory event history in append order.
+    - print_to_console (bool): If True (default), each log line is printed to stdout.
+    - file_path (str | None): If set, lines are also written to this file. If `None`, file logging
+      is disabled. Default is "last_run.log".
+    - overwrite (bool): If True (default), the log file is opened in write mode on instantiation;
+      otherwise it is appended to.
+
+-------------------------------------------------------------------------------
+Output Format
+-------------------------------------------------------------------------------
+- Console/file lines: `[YYYY-MM-DD HH:MM:SS] LEVEL: message`
+- `as_text()`:         `[HH:MM:SS] LEVEL: message` per line (no date, suitable for compact display)
+- `last_line()`:       Returns the most recent line in `as_text()` format, or `"Starting…"` if empty.
+
+-------------------------------------------------------------------------------
+Behavior & Guarantees
+-------------------------------------------------------------------------------
+- **File handling**: On initialization, if `file_path` is provided, the file is opened once in
+  line-buffered text mode (`buffering=1`) and UTF-8 encoding. If opening fails, the logger
+  continues without a file handle.
+- **Atomicity**: Each `_emit` call attempts to write a single line and then flush. Any file write
+  errors are swallowed; console output and in-memory storage are unaffected.
+- **Timestamps**: Timestamps are captured at call time (`datetime.now()`), local time, naive datetimes.
+- **Memory growth**: All events are retained in `events`; for long-running processes, consider
+  pruning or exporting periodically.
+- **Thread-safety**: Not thread-safe. If you need concurrent logging, protect calls with a lock or
+  adapt the implementation for multi-thread/process usage.
+- **No rotation**: No file rotation or size limiting. Use external tools or extend as needed.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
