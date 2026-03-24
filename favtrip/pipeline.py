@@ -452,6 +452,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Fallback: if per-user incoming folder could not be resolved,
     # use the shared incoming folder
     if not user_incoming_folder_id:
+        raise SystemExit('BUG: FELL BACK TO MASTER FOLDER')
         if logger:
             logger.warn(
                 "Per-user incoming folder not resolved; "
