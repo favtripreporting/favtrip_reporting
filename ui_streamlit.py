@@ -356,12 +356,6 @@ def render_run_form(cfg):
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
 
-                    # Resolve per-user Incoming subfolder
-                    if logger:
-                        logger.info(
-                            f"Resolving per-user incoming folder for {user_id_for_name}"
-                        )
-
                     incoming_folder = get_or_create_subfolder(
                         drive,
                         cfg.INCOMING_FOLDER_ID,
