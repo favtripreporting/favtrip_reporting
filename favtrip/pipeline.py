@@ -370,8 +370,16 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
         if cfg.USER_FOLDER_ID:
             if logger:
-                logger.info(f"Looking for per-user calc sheet in {user_incoming_folder_id} for: {user_id_for_name}")
-            found = find_sheet_by_name(drive_svc, user_incoming_folder_id, user_id_for_name)
+                logger.info(
+                    f"Looking for per-user calc sheet in {cfg.USER_FOLDER_ID} for: {user_id_for_name}"
+                )
+
+            found = find_sheet_by_name(
+                drive_svc,
+                cfg.USER_FOLDER_ID,
+                user_id_for_name
+            )
+
             if found:
                 user_calc_sheet_id = found["id"]
                 if logger:
@@ -383,7 +391,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
                 if master_update_time > user_update_time:
                     if logger:
-                        logger.info("Per-user workbook found but out of date; duplicating master into USER_FOLDER_ID…")
+                        logger.info(f"Per-user workbook found but out of date; duplicating master into {cfg.USER_FOLDER_ID}…")
                     created = copy_file_to_folder(
                         drive_svc,
                         cfg.CALC_SPREADSHEET_ID,
@@ -420,7 +428,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
             else:
                 if logger:
-                    logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
+                    logger.info(f"No per-user workbook found; duplicating master into {cfg.USER_FOLDER_ID}…")
                 created = copy_file_to_folder(
                     drive_svc,
                     cfg.CALC_SPREADSHEET_ID,
@@ -435,10 +443,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             calc_ss_id = user_calc_sheet_id
         else:
             if logger:
-                logger.info("USER_FOLDER_ID not configured; using CALC_SPREADSHEET_ID directly.")
+                logger.info(f"USER_FOLDER_ID not configured; using {cfg.CALC_SPREADSHEET_ID} directly.")
     except Exception as e:
         if logger:
-            logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
+            logger.warn(f"Could not resolve per-user workbook (continuing with {cfg.CALC_SPREADSHEET_ID}): {e}")
     
     # Fallback: if per-user incoming folder could not be resolved,
     # use the shared incoming folder
