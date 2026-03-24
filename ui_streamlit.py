@@ -343,28 +343,32 @@ def render_run_form(cfg):
         # --- Handle the upload action immediately ---
         if upload_clicked:
             if not cfg.INCOMING_FOLDER_ID:
-                st.error("Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**.")
+                st.error(
+                    "Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**."
+                )
             elif incoming_file is None:
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
                     drive = _get_drive_service_or_raise(cfg)
+
                     media_mime = _infer_media_mime(incoming_file.name)
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
 
                     # Resolve per-user Incoming subfolder
-        `           if logger:
-                        logger.info(f"Resolving per-user incoming folder for {user_id_for_name}")
+                    if logger:
+                        logger.info(
+                            f"Resolving per-user incoming folder for {user_id_for_name}"
+                        )
 
                     incoming_folder = get_or_create_subfolder(
-                        drive_svc,
+                        drive,
                         cfg.INCOMING_FOLDER_ID,
-                        user_id_for_name
+                        user_id_for_name,
                     )
 
                     user_incoming_folder_id = incoming_folder["id"]
-`
 
                     created = upload_to_drive(
                         drive,
@@ -374,22 +378,25 @@ def render_run_form(cfg):
                         folder_id=user_incoming_folder_id,
                         to_sheet=True,
                     )
+
                     link = created.get("webViewLink", "")
 
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
                     st.session_state.incoming_selected_name = None
-           
 
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
-                        st.link_button("Open uploaded Sheet", link, width='stretch')
-                    st.caption("This will be treated as the latest incoming report on the next run.")
+                        st.link_button("Open uploaded Sheet", link, width="stretch")
+
+                    st.caption(
+                        "This will be treated as the latest incoming report on the next run."
+                    )
                     _rerun()
+
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
-
-
+        ``
     # =========================
     # RUN FORM CARD
     # =========================
