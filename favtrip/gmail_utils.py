@@ -159,10 +159,18 @@ def email_manager_report(gmail_svc, sender: str, to_list, cc_list, pdf_name, pdf
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
     msg.set_content(f"Hi team,\nAttached is the Manager Report ({location}).\nBackup link: {pdf_link}\n—Automated")
+
     msg.add_alternative(
-        f"<p>Hi team,</p><p>Manager Report ({location})</p>"
-        f"<a href='{pdf_link}'>Backup Link</a>", subtype="html"
+        f"""
+        <p>Hi team,</p>
+        <p>Your manager report for store <b>{location}</b> is ready.</p>
+        <p><a href='{pdf_link}'>Backup Link</a></p>
+        <p>Attached: {pdf_name}</p>
+        <p>—Automated</p>
+        """,
+        subtype="html",
     )
+
     msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=pdf_name)
     return send_email(gmail_svc, sender, msg)
 
