@@ -781,7 +781,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info("FULL order email sent")
     else:
         if logger:
-            logger.info("Separate full order email disabled")`
+            logger.info("Separate full order email disabled")
 
     
     # Step 4G: File Cleanup
