@@ -96,7 +96,7 @@ from .sheets_utils import (
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
     add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
 )
-from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file
+from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
 from .gmail_utils import send_email, email_manager_report, email_order_report
 
 CSV_MIME = "text/csv"
