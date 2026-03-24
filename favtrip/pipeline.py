@@ -612,6 +612,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
+    full_link = full_created.get('webViewLink')
     full_gid = first_gid(sheets_svc, full_file_id)
     full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
     full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
