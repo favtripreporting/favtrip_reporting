@@ -380,8 +380,6 @@ def render_run_form(cfg):
 
                     link = created.get("webViewLink", "")
 
-                    _rerun()
-
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
                     st.session_state.incoming_selected_name = None

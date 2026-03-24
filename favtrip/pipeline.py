@@ -609,12 +609,12 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
 
     # Step 4C: Full order upload (CSV) and export (PDF)
-    full_csv_name = f"Order_Report_{ts}_{location}_FULL.csv"
+    full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
     full_gid = first_gid(sheets_svc, full_file_id)
     full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
-    full_pdf_name = f"Order_Report_{ts}_{location}_FULL.pdf"
+    full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
@@ -679,7 +679,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         tag = clean_tag(key)
         store_tag = clean_tag(store)
     
-        csv_name = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.csv"
+        csv_name = f"Order_Report_{tag}_{store_tag}_{ts}.csv"
     
         # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
         created = upload_to_drive(
@@ -692,7 +692,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         # Export the Google Sheet as PDF
         pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.pdf"
+        pdfname = f"Order_Report_{tag}_{store_tag}_{ts}.pdf"
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
@@ -766,6 +766,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             f"Hi team,\nFULL order report is ready.\nSheet: {full_link}\nAttached: {full_pdf_name}\n—Automated")
         msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
         send_email(gmail_svc, "me", msg)
+        
         if logger:
             logger.info("FULL order email sent")
     else:
