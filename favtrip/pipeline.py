@@ -78,6 +78,7 @@ import csv
 import io
 import re
 import requests
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -461,12 +462,25 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 1: latest incoming
     if logger:
         logger.info("Finding latest incoming spreadsheet…")
-    latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
+
+    latest = None
+    n = 5
+    for attempt in range(n):  # ~10 seconds max
+        latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
+        if latest:
+            break
+
+        if logger:
+            logger.info(
+                f"No incoming sheet yet (attempt {attempt + 1}/{n}); retrying..."
+            )
+        time.sleep(2)
+
     if not latest:
-        raise SystemExit("No incoming report found.")
-    new_report_id = latest["id"]
-    if logger:
-        logger.info(f"Latest incoming: {latest['name']} ({new_report_id})")
+        raise SystemExit(
+            "No incoming report found in per-user incoming folder."
+        )
+            
 
     # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
     if logger:
