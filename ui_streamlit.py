@@ -356,6 +356,10 @@ def render_run_form(cfg):
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
 
+                    me = drive.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
+                    user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+                    user_id_for_name = user_email
+
                     incoming_folder = get_or_create_subfolder(
                         drive,
                         cfg.INCOMING_FOLDER_ID,
