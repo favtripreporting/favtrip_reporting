@@ -92,7 +92,7 @@ from favtrip.config_store import save_config_to_drive
 from favtrip.config import Config
 from favtrip.logger import StatusLogger
 from favtrip.pipeline import run_pipeline
-from favtrip.drive_utils import upload_to_drive
+from favtrip.drive_utils import upload_to_drive, get_or_create_subfolder
 
 
 # =========================
@@ -352,12 +352,26 @@ def render_run_form(cfg):
                     media_mime = _infer_media_mime(incoming_file.name)
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
+
+                     # Resolve per-user Incoming subfolder
+        `            if logger:
+                        logger.info(f"Resolving per-user incoming folder for {user_id_for_name}")
+
+                    incoming_folder = get_or_create_subfolder(
+                        drive_svc,
+                        cfg.INCOMING_FOLDER_ID,
+                        user_id_for_name
+                    )
+
+                    user_incoming_folder_id = incoming_folder["id"]
+`
+
                     created = upload_to_drive(
                         drive,
                         data=incoming_file.getvalue(),
                         name=nice_name,
                         mime=media_mime,
-                        folder_id=cfg.INCOMING_FOLDER_ID,
+                        folder_id=user_incoming_folder_id,
                         to_sheet=True,
                     )
                     link = created.get("webViewLink", "")
