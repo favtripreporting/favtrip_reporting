@@ -350,10 +350,27 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         # user_id_for_name = (me or {}).get("permissionId") or user_email
         user_id_for_name = user_email
 
-        if cfg.USER_FOLDER_ID:
+        # Resolve per-user Incoming subfolder
+        if logger:
+            logger.info(f"Resolving per-user incoming folder for {user_id_for_name}")
+
+        incoming_folder = get_or_create_subfolder(
+            drive_svc,
+            cfg.INCOMING_FOLDER_ID,
+            user_id_for_name
+        )
+
+        user_incoming_folder_id = incoming_folder["id"]
+
+        if logger:
+            logger.info(
+                f"Using incoming folder: {incoming_folder.get('webViewLink')}"
+            )
+
+        if user_incoming_folder_id:
             if logger:
-                logger.info(f"Looking for per-user calc sheet in USER_FOLDER_ID for: {user_id_for_name}")
-            found = find_sheet_by_name(drive_svc, cfg.USER_FOLDER_ID, user_id_for_name)
+                logger.info(f"Looking for per-user calc sheet in {user_incoming_folder_id} for: {user_id_for_name}")
+            found = find_sheet_by_name(drive_svc, user_incoming_folder_id, user_id_for_name)
             if found:
                 user_calc_sheet_id = found["id"]
                 if logger:
@@ -426,7 +443,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 1: latest incoming
     if logger:
         logger.info("Finding latest incoming spreadsheet…")
-    latest = find_latest_sheet(drive_svc, cfg.INCOMING_FOLDER_ID)
+    latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
     if not latest:
         raise SystemExit("No incoming report found.")
     new_report_id = latest["id"]
@@ -734,7 +751,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info("Cleaning old incoming files…")
         cleanup_folder_by_age(
             drive_svc,
-            cfg.INCOMING_FOLDER_ID,
+            user_incoming_folder_id,
             cfg.FAILED_INPUT_TIME_TO_LIFE,
             logger
         )
