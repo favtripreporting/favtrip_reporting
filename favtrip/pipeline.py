@@ -461,11 +461,11 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     # Step 1: latest incoming
     if logger:
-        logger.info("Finding latest incoming spreadsheet…")
+        logger.info(f"Finding latest incoming spreadsheet in {user_incoming_folder_id}…")
 
     latest = None
-    n = 5
-    for attempt in range(n):  # ~10 seconds max
+    n = 10
+    for attempt in range(n):
         latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
         if latest:
             break
