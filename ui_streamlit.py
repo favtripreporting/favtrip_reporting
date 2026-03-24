@@ -350,6 +350,7 @@ def render_run_form(cfg):
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
+                    st.success("Uploading to Google Drive...")
                     drive = _get_drive_service_or_raise(cfg)
 
                     media_mime = _infer_media_mime(incoming_file.name)
@@ -378,6 +379,8 @@ def render_run_form(cfg):
                     )
 
                     link = created.get("webViewLink", "")
+
+                    _rerun()
 
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
@@ -541,7 +544,7 @@ def render_run_form(cfg):
                 store_val = store if store else None
                 key_val = key if key else None
         
-                if not store_val and not key_val:
+                if emails and not store_val and not key_val:
                     rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
                     continue
         
