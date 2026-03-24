@@ -753,7 +753,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
 
     # Step 4F: Send Full Order if needed
-`    if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
+   if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
         to_full = _fallback_recipients(
             "FULL order",
             cfg.TO_RECIPIENTS,
