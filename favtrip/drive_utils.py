@@ -209,3 +209,37 @@ def rename_file(drive_svc, file_id: str, new_name: str):
         body=body,
         fields="id,name,mimeType,webViewLink"
     ).execute()
+
+def get_or_create_subfolder(drive_svc, parent_folder_id: str, name: str):
+    """
+    Return a Drive folder with the given name under parent_folder_id.
+    Create it if it does not already exist.
+    """
+    q = (
+        f"mimeType='application/vnd.google-apps.folder' "
+        f"and name='{name}' "
+        f"and '{parent_folder_id}' in parents "
+        f"and trashed=false"
+    )
+
+    res = drive_svc.files().list(
+        q=q,
+        fields="files(id, name, webViewLink)",
+        pageSize=1
+    ).execute()
+
+    files = res.get("files", [])
+    if files:
+        return files[0]
+
+    metadata = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [parent_folder_id],
+    }
+
+    return drive_svc.files().create(
+        body=metadata,
+        fields="id, name, webViewLink"
+    ).execute()
+

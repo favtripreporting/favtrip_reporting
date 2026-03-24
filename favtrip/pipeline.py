@@ -78,6 +78,7 @@ import csv
 import io
 import re
 import requests
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -95,7 +96,7 @@ from .sheets_utils import (
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
     add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
 )
-from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file
+from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
 from .gmail_utils import send_email, email_manager_report, email_order_report
 
 CSV_MIME = "text/csv"
@@ -343,6 +344,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
+    user_incoming_folder_id = None
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
         user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
@@ -350,10 +352,35 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         # user_id_for_name = (me or {}).get("permissionId") or user_email
         user_id_for_name = user_email
 
+        # Resolve per-user Incoming subfolder
+        if logger:
+            logger.info(f"Resolving per-user incoming folder for {user_id_for_name}")
+
+        incoming_folder = get_or_create_subfolder(
+            drive_svc,
+            cfg.INCOMING_FOLDER_ID,
+            user_id_for_name
+        )
+
+        user_incoming_folder_id = incoming_folder["id"]
+
+        if logger:
+            logger.info(
+                f"Using incoming folder: {incoming_folder.get('webViewLink')}"
+            )
+
         if cfg.USER_FOLDER_ID:
             if logger:
-                logger.info(f"Looking for per-user calc sheet in USER_FOLDER_ID for: {user_id_for_name}")
-            found = find_sheet_by_name(drive_svc, cfg.USER_FOLDER_ID, user_id_for_name)
+                logger.info(
+                    f"Looking for per-user calc sheet in {cfg.USER_FOLDER_ID} for: {user_id_for_name}"
+                )
+
+            found = find_sheet_by_name(
+                drive_svc,
+                cfg.USER_FOLDER_ID,
+                user_id_for_name
+            )
+
             if found:
                 user_calc_sheet_id = found["id"]
                 if logger:
@@ -365,7 +392,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
                 if master_update_time > user_update_time:
                     if logger:
-                        logger.info("Per-user workbook found but out of date; duplicating master into USER_FOLDER_ID…")
+                        logger.info(f"Per-user workbook found but out of date; duplicating master into {cfg.USER_FOLDER_ID}…")
                     created = copy_file_to_folder(
                         drive_svc,
                         cfg.CALC_SPREADSHEET_ID,
@@ -402,7 +429,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
             else:
                 if logger:
-                    logger.info("No per-user workbook found; duplicating master into USER_FOLDER_ID…")
+                    logger.info(f"No per-user workbook found; duplicating master into {cfg.USER_FOLDER_ID}…")
                 created = copy_file_to_folder(
                     drive_svc,
                     cfg.CALC_SPREADSHEET_ID,
@@ -417,21 +444,44 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             calc_ss_id = user_calc_sheet_id
         else:
             if logger:
-                logger.info("USER_FOLDER_ID not configured; using CALC_SPREADSHEET_ID directly.")
+                logger.info(f"USER_FOLDER_ID not configured; using {cfg.CALC_SPREADSHEET_ID} directly.")
     except Exception as e:
         if logger:
-            logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
+            logger.warn(f"Could not resolve per-user workbook (continuing with {cfg.CALC_SPREADSHEET_ID}): {e}")
     
+    # Fallback: if per-user incoming folder could not be resolved,
+    # use the shared incoming folder
+    if not user_incoming_folder_id:
+        if logger:
+            logger.warn(
+                "Per-user incoming folder not resolved; "
+                f"falling back to shared {cfg.INCOMING_FOLDER_ID}"
+            )
+        user_incoming_folder_id = cfg.INCOMING_FOLDER_ID
 
     # Step 1: latest incoming
     if logger:
-        logger.info("Finding latest incoming spreadsheet…")
-    latest = find_latest_sheet(drive_svc, cfg.INCOMING_FOLDER_ID)
+        logger.info(f"Finding latest incoming spreadsheet in {user_incoming_folder_id}…")
+
+    latest = None
+    n = 10
+    for attempt in range(n):
+        latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
+        if latest:
+            break
+
+        if logger:
+            logger.info(
+                f"No incoming sheet in {user_incoming_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
+            )
+        time.sleep(2)
+
     if not latest:
-        raise SystemExit("No incoming report found.")
+        raise SystemExit(
+            "No incoming report found in per-user incoming folder."
+        )
+    
     new_report_id = latest["id"]
-    if logger:
-        logger.info(f"Latest incoming: {latest['name']} ({new_report_id})")
 
     # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
     if logger:
@@ -559,12 +609,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
 
     # Step 4C: Full order upload (CSV) and export (PDF)
-    full_csv_name = f"Order_Report_{ts}_{location}_FULL.csv"
+    full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
+    full_link = full_created.get('webViewLink')
     full_gid = first_gid(sheets_svc, full_file_id)
     full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
-    full_pdf_name = f"Order_Report_{ts}_{location}_FULL.pdf"
+    full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
@@ -629,7 +680,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         tag = clean_tag(key)
         store_tag = clean_tag(store)
     
-        csv_name = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.csv"
+        csv_name = f"Order_Report_{tag}_{store_tag}_{ts}.csv"
     
         # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
         created = upload_to_drive(
@@ -642,7 +693,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         # Export the Google Sheet as PDF
         pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{ts}_{location}_{tag}_{store_tag}.pdf"
+        pdfname = f"Order_Report_{tag}_{store_tag}_{ts}.pdf"
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
@@ -703,19 +754,30 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
 
     # Step 4F: Send Full Order if needed
-    full_link = full_created.get('webViewLink')
     if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
-        to_full = _fallback_recipients("FULL order", cfg.TO_RECIPIENTS, cfg.DEFAULT_ORDER_RECIPIENTS)
-        msg = EmailMessage()
-        msg["Subject"] = f"Order Report – {ts} – {location} – FULL"
-        msg["From"] = "me"
-        msg["To"] = ", ".join(to_full)
-        if cfg.CC_RECIPIENTS:
-            msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
-        msg.set_content(
-            f"Hi team,\nFULL order report is ready.\nSheet: {full_link}\nAttached: {full_pdf_name}\n—Automated")
-        msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
-        send_email(gmail_svc, "me", msg)
+        to_full = _fallback_recipients(
+            "FULL order",
+            cfg.TO_RECIPIENTS,
+            cfg.DEFAULT_ORDER_RECIPIENTS,
+        )
+
+        email_order_report(
+            gmail_svc=gmail_svc,
+            sender="me",
+            to_list=to_full,
+            cc_list=cfg.CC_RECIPIENTS,
+            key='',  # or a specific key if your function requires it
+            tag="FULL",
+            ts=ts,
+            location=location,
+            pdf_name=full_pdf_name,
+            pdf_bytes=full_pdf,
+            sheet_link=full_created.get("webViewLink"),
+            include_full_order=False,  # already a full-only email
+            full_pdf_bytes=None,
+            full_pdf_name=None,
+        )
+
         if logger:
             logger.info("FULL order email sent")
     else:
@@ -734,7 +796,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info("Cleaning old incoming files…")
         cleanup_folder_by_age(
             drive_svc,
-            cfg.INCOMING_FOLDER_ID,
+            user_incoming_folder_id,
             cfg.FAILED_INPUT_TIME_TO_LIFE,
             logger
         )

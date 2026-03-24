@@ -92,7 +92,7 @@ from favtrip.config_store import save_config_to_drive
 from favtrip.config import Config
 from favtrip.logger import StatusLogger
 from favtrip.pipeline import run_pipeline
-from favtrip.drive_utils import upload_to_drive
+from favtrip.drive_utils import upload_to_drive, get_or_create_subfolder
 
 
 # =========================
@@ -343,38 +343,58 @@ def render_run_form(cfg):
         # --- Handle the upload action immediately ---
         if upload_clicked:
             if not cfg.INCOMING_FOLDER_ID:
-                st.error("Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**.")
+                st.error(
+                    "Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**."
+                )
             elif incoming_file is None:
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
+                    st.success("Uploading to Google Drive...")
                     drive = _get_drive_service_or_raise(cfg)
+
                     media_mime = _infer_media_mime(incoming_file.name)
                     base_name = os.path.splitext(incoming_file.name)[0]
                     nice_name = f"{base_name} (uploaded via UI)"
+
+                    me = drive.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
+                    user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+                    user_id_for_name = user_email
+
+                    incoming_folder = get_or_create_subfolder(
+                        drive,
+                        cfg.INCOMING_FOLDER_ID,
+                        user_id_for_name,
+                    )
+
+                    user_incoming_folder_id = incoming_folder["id"]
+
                     created = upload_to_drive(
                         drive,
                         data=incoming_file.getvalue(),
                         name=nice_name,
                         mime=media_mime,
-                        folder_id=cfg.INCOMING_FOLDER_ID,
+                        folder_id=user_incoming_folder_id,
                         to_sheet=True,
                     )
+
                     link = created.get("webViewLink", "")
 
                     st.session_state.incoming_uploaded_ok = True
                     st.session_state.incoming_uploader_version += 1
                     st.session_state.incoming_selected_name = None
-           
 
                     st.success("✅ Uploaded to Incoming as a Google Sheet.")
                     if link:
-                        st.link_button("Open uploaded Sheet", link, width='stretch')
-                    st.caption("This will be treated as the latest incoming report on the next run.")
+                        st.link_button("Open uploaded Sheet", link, width="stretch")
+
+                    st.caption(
+                        "This will be treated as the latest incoming report on the next run."
+                    )
                     _rerun()
+
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
-
 
     # =========================
     # RUN FORM CARD
@@ -522,12 +542,12 @@ def render_run_form(cfg):
                 store_val = store if store else None
                 key_val = key if key else None
         
-                if not store_val and not key_val:
+                if emails and not store_val and not key_val:
                     rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
                     continue
         
-                if not emails:
-                    rk_issues.append(f"Row {i+1}: Missing emails.")
+                if (store_val or key_val) and not emails:
+                    rk_issues.append(f"Row {i+1}: Missing email(s).")
                     continue
         
                 rk_map[(store_val, key_val)] = emails
