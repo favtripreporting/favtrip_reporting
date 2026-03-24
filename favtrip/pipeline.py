@@ -343,6 +343,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
+    user_incoming_folder_id = None
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
         user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
@@ -367,7 +368,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                 f"Using incoming folder: {incoming_folder.get('webViewLink')}"
             )
 
-        if user_incoming_folder_id:
+        if cfg.USER_FOLDER_ID:
             if logger:
                 logger.info(f"Looking for per-user calc sheet in {user_incoming_folder_id} for: {user_id_for_name}")
             found = find_sheet_by_name(drive_svc, user_incoming_folder_id, user_id_for_name)
@@ -439,6 +440,15 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.warn(f"Could not resolve per-user workbook (continuing with CALC_SPREADSHEET_ID): {e}")
     
+    # Fallback: if per-user incoming folder could not be resolved,
+    # use the shared incoming folder
+    if not user_incoming_folder_id:
+        if logger:
+            logger.warn(
+                "Per-user incoming folder not resolved; "
+                f"falling back to shared {cfg.INCOMING_FOLDER_ID}"
+            )
+        user_incoming_folder_id = cfg.INCOMING_FOLDER_ID
 
     # Step 1: latest incoming
     if logger:
