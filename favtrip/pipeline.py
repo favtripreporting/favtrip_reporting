@@ -753,25 +753,35 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
 
     # Step 4F: Send Full Order if needed
-    full_link = full_created.get('webViewLink')
-    if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
-        to_full = _fallback_recipients("FULL order", cfg.TO_RECIPIENTS, cfg.DEFAULT_ORDER_RECIPIENTS)
-        msg = EmailMessage()
-        msg["Subject"] = f"Order Report – {ts} – {location} – FULL"
-        msg["From"] = "me"
-        msg["To"] = ", ".join(to_full)
-        if cfg.CC_RECIPIENTS:
-            msg["Cc"] = ", ".join(cfg.CC_RECIPIENTS)
-        msg.set_content(
-            f"Hi team,\nFULL order report is ready.\nSheet: {full_link}\nAttached: {full_pdf_name}\n—Automated")
-        msg.add_attachment(full_pdf, maintype="application", subtype="pdf", filename=full_pdf_name)
-        send_email(gmail_svc, "me", msg)
-        
+`    if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
+        to_full = _fallback_recipients(
+            "FULL order",
+            cfg.TO_RECIPIENTS,
+            cfg.DEFAULT_ORDER_RECIPIENTS,
+        )
+
+        email_order_report(
+            gmail_svc=gmail_svc,
+            sender="me",
+            to_list=to_full,
+            cc_list=cfg.CC_RECIPIENTS,
+            key=None,  # or a specific key if your function requires it
+            tag="FULL",
+            ts=ts,
+            location=location,
+            pdf_name=full_pdf_name,
+            pdf_bytes=full_pdf,
+            sheet_link=full_created.get("webViewLink"),
+            include_full_order=False,  # already a full-only email
+            full_pdf_bytes=None,
+            full_pdf_name=None,
+        )
+
         if logger:
             logger.info("FULL order email sent")
     else:
         if logger:
-            logger.info("Separate full order email disabled")
+            logger.info("Separate full order email disabled")`
 
     
     # Step 4G: File Cleanup

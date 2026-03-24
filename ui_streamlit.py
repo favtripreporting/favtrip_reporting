@@ -546,8 +546,8 @@ def render_run_form(cfg):
                     rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
                     continue
         
-                if not emails:
-                    rk_issues.append(f"Row {i+1}: Missing emails.")
+                if (store_val or key_val) and not emails:
+                    rk_issues.append(f"Row {i+1}: Missing email(s).")
                     continue
         
                 rk_map[(store_val, key_val)] = emails
