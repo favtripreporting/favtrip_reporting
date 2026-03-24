@@ -472,7 +472,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
         if logger:
             logger.info(
-                f"No incoming sheet yet (attempt {attempt + 1}/{n}); retrying..."
+                f"No incoming sheet in {user_incoming_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
             )
         time.sleep(2)
 
