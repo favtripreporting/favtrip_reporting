@@ -239,11 +239,13 @@ class Config:
     INCOMING_FOLDER_ID: str = "1jJE3r9DOHXwBdd94E6ZhxBBH9xvSjI-b"
     MANAGER_REPORT_FOLDER_ID: str = "17Nqwo6HYe30JP0wnZYoLRG0F1s-X-IVZ"
     ORDER_REPORT_FOLDER_ID: str = "171dqzMim-IdpB_kzjYQnzoSbW89uJTfP"
+    ERROR_REPORT_FOLDER_ID: str = "1T-rnyXmPD1eFcxi-s8i4b1EP6-pW5ETW"
     USER_FOLDER_ID: str = "1JBHBcnS6397ka2ITW6Wbuu2aKjbgCCHj"
 
     # GIDs, sheet metadata, timestamp settings
     GID_MANAGER_PDF: str = "1921812573"
     GID_ORDER_CSV: str = "1875928148"
+    GID_ERROR_REPORT: str = "1581903111"
     LOCATION_SHEET_TITLE: str = "REFR: Values"
     LOCATION_NAMED_RANGE: str = "_locations"
     TIMESTAMP_TZ: str = "America/Chicago"
@@ -277,6 +279,9 @@ class Config:
     FAILED_INPUT_TIME_TO_LIFE: int = 1
     USER_TIME_TO_LIFE: int = 90
 
+    #Other
+    VENDOR_PRICE_BOOK_LINK: str = "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"
+
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
         """
@@ -293,10 +298,12 @@ class Config:
             INCOMING_FOLDER_ID=str(_get_secret("INCOMING_FOLDER_ID", "")),
             MANAGER_REPORT_FOLDER_ID=str(_get_secret("MANAGER_REPORT_FOLDER_ID", "")),
             ORDER_REPORT_FOLDER_ID=str(_get_secret("ORDER_REPORT_FOLDER_ID", "")),
+            ERROR_REPORT_FOLDER_ID=str(_get_secret("ERROR_REPORT_FOLDER_ID", "")),
             USER_FOLDER_ID=str(_get_secret("USER_FOLDER_ID", "")),
 
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
+            GID_ERROR_REPORT=str(_get_secret("GID_ERROR_REPORT", "1581903111")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
             TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),
@@ -336,6 +343,8 @@ class Config:
             USE_AUTO_ROLLOVER_IF_ONE_WEEK=_coerce_bool(_get_secret("USE_AUTO_ROLLOVER_IF_ONE_WEEK", "true")),
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
+
+            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"))
         )
 
         # Optional overlay from Drive JSON config (if creds + file present)
