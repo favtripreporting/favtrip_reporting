@@ -572,8 +572,8 @@ def render_run_form(cfg):
                 error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
                 
             with ga2:
-                calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
                 incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
+                calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
                 vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
 
             st.markdown("##### GIDs & Named Ranges")
@@ -1049,7 +1049,7 @@ with st.sidebar:
 
     st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", width='stretch')
 
-    st.link_button("Open Vendor Price Book", f"https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111", width='stretch')
+    st.link_button("Open Vendor Price Book", cfg.VENDOR_PRICE_BOOK_LINK, width='stretch')
 
     st.checkbox(
         "Offer full log download",
