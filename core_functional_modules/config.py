@@ -82,9 +82,9 @@ Core API
   2) Reads settings from `st.secrets` if available; otherwise from environment.
      Values are passed through the coercers defined above.
   3) Attempts to overlay a Google Drive–hosted JSON config:
-     - Uses `favtrip.google_client.load_valid_token` and `services` to obtain a
+     - Uses `core_functional_modules.google_client.load_valid_token` and `services` to obtain a
        Drive client (respecting `HTTP_TIMEOUT_SECONDS`).
-     - Reads a JSON dict via `favtrip.config_store.load_config_from_drive`,
+     - Reads a JSON dict via `core_functional_modules.config_store.load_config_from_drive`,
        optionally using `CONFIG_FILE_ID` from `st.secrets` if present.
      - Keys in the override dict that match `Config` attributes replace
        previously loaded values.
@@ -341,8 +341,8 @@ class Config:
         # Optional overlay from Drive JSON config (if creds + file present)
         try:
             import streamlit as st
-            from favtrip.google_client import load_valid_token, services
-            from favtrip.config_store import load_config_from_drive
+            from core_functional_modules.google_client import load_valid_token, services
+            from core_functional_modules.config_store import load_config_from_drive
 
             if hasattr(st, "secrets"):
                 CONFIG_FILE_ID = st.secrets.get("CONFIG_FILE_ID")
