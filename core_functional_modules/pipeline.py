@@ -884,4 +884,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         s = elapsed % 60
         logger.info(f"Run completed in {h:02d}:{m:02d}:{s:02d}")
 
-    return RunResult(True, elapsed, location, ts, manager_link, full_link, err_exist, err_link)
+    return RunResult(
+        ok=True,
+        elapsed_seconds=elapsed,
+        location=location,
+        timestamp=ts,
+        manager_pdf_link=manager_link,
+        full_order_link=full_link,
+        err_exist=err_exist,
+        err_link=err_link
+        )
