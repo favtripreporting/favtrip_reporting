@@ -854,7 +854,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info("Cleaning old output files…")
         for folder in [
             cfg.MANAGER_REPORT_FOLDER_ID,
-            cfg.ORDER_REPORT_FOLDER_ID
+            cfg.ORDER_REPORT_FOLDER_ID,
+            cfg.ERROR_REPORT_FOLDER_ID
         ]:
             cleanup_folder_by_age(
                 drive_svc,
