@@ -97,7 +97,7 @@ from .sheets_utils import (
     add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
-from .gmail_utils import send_email, email_manager_report, email_order_report
+from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report
 
 CSV_MIME = "text/csv"
 
@@ -282,6 +282,20 @@ def _filter_rows_to_dates(svc, spreadsheet_id: str, sheet_id: int, values2d, hea
         if (d is None) or (d not in keep_dates_set):
             bad_rows.append(r)
     delete_row_indices(svc, spreadsheet_id, sheet_id, bad_rows)
+
+
+def csv_has_data_rows(csv_bytes: bytes) -> bool:
+    if not csv_bytes:
+        return False
+
+    text = csv_bytes.decode("utf-8-sig")  # handles BOM if present
+    reader = csv.reader(io.StringIO(text))
+
+    rows = list(reader)
+
+    # More than just the header row
+    return len(rows) > 1
+
 
 
 import re
@@ -608,7 +622,26 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info("Exporting Master Order (CSV)…")
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
 
-    # Step 4C: Full order upload (CSV) and export (PDF)
+    # Step 4C: Error Report CSV, Upload, Export PDF
+    if logger:
+        logger.info("Exporting Error Report (CSV)…")
+
+    err_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ERROR_REPORT, "csv")
+
+    err_exist = csv_has_data_rows(err_csv_bytes)
+
+    if err_exist:
+        err_csv_name = f"Error_Report_{ts}.csv"
+        err_created = upload_to_drive(drive_svc, err_csv_bytes, err_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
+        err_file_id = err_created['id']
+        err_link = err_created.get('webViewLink')
+        err_gid = first_gid(sheets_svc, err_file_id)
+        err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf")
+        err_pdf_name = f"Error_Report_{ts}.pdf"
+        if logger:
+            logger.info(f"Uploaded Error Sheet: {err_created.get('webViewLink')}")
+
+    # Step 4D: Full order upload (CSV) and export (PDF)
     full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
@@ -619,7 +652,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
-    # Step 4D: Create per-report-key outputs (CSV) and email
+    # Step 4E: Create per-report-key outputs (CSV) and email
 
     # --- Parse the master CSV into rows of dicts ---
     
@@ -737,7 +770,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info(f"Emailed {store} - {tag} to {recipients}")
     
         
-    # Step 4E: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
+    # Step 4F: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
     if getattr(cfg, "EMAIL_MANAGER_REPORT", True):
         to_list = _fallback_recipients("Manager Report (TO_RECIPIENTS)", cfg.TO_RECIPIENTS)
         cc_list = _clean_emails(cfg.CC_RECIPIENTS)
@@ -753,7 +786,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
 
-    # Step 4F: Send Full Order if needed
+    # Step 4G: Send Full Order if needed
     if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
         to_full = _fallback_recipients(
             "FULL order",
@@ -784,8 +817,14 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info("Separate full order email disabled")
 
-    
-    # Step 4G: File Cleanup
+    # Step 4H: Send Error Report if Needed
+
+    if err_exist:
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_full, cc_list=cfg.CC_RECIPIENTS, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link)
+        if logger:
+            logger.info("Error report email sent")
+
+    # Step 4I: File Cleanup
 
     try:
         if logger:
@@ -834,4 +873,4 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         s = elapsed % 60
         logger.info(f"Run completed in {h:02d}:{m:02d}:{s:02d}")
 
-    return RunResult(True, elapsed, location, ts, manager_link, full_link)
+    return RunResult(True, elapsed, location, ts, manager_link, full_link, err_exist, err_link)

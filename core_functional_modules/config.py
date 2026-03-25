@@ -239,11 +239,13 @@ class Config:
     INCOMING_FOLDER_ID: str = "1jJE3r9DOHXwBdd94E6ZhxBBH9xvSjI-b"
     MANAGER_REPORT_FOLDER_ID: str = "17Nqwo6HYe30JP0wnZYoLRG0F1s-X-IVZ"
     ORDER_REPORT_FOLDER_ID: str = "171dqzMim-IdpB_kzjYQnzoSbW89uJTfP"
+    ERROR_REPORT_FOLDER_ID: str = "1T-rnyXmPD1eFcxi-s8i4b1EP6-pW5ETW"
     USER_FOLDER_ID: str = "1JBHBcnS6397ka2ITW6Wbuu2aKjbgCCHj"
 
     # GIDs, sheet metadata, timestamp settings
     GID_MANAGER_PDF: str = "1921812573"
     GID_ORDER_CSV: str = "1875928148"
+    GID_ERROR_REPORT: str = "1581903111"
     LOCATION_SHEET_TITLE: str = "REFR: Values"
     LOCATION_NAMED_RANGE: str = "_locations"
     TIMESTAMP_TZ: str = "America/Chicago"
@@ -293,10 +295,12 @@ class Config:
             INCOMING_FOLDER_ID=str(_get_secret("INCOMING_FOLDER_ID", "")),
             MANAGER_REPORT_FOLDER_ID=str(_get_secret("MANAGER_REPORT_FOLDER_ID", "")),
             ORDER_REPORT_FOLDER_ID=str(_get_secret("ORDER_REPORT_FOLDER_ID", "")),
+            ERROR_REPORT_FOLDER_ID=str(_get_secret("ERROR_REPORT_FOLDER_ID", ""))
             USER_FOLDER_ID=str(_get_secret("USER_FOLDER_ID", "")),
 
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
+            GID_ERROR_REPORT=str(_get_secret("GID_ERROR_REPORT", "1581903111")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
             TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),

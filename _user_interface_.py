@@ -572,11 +572,13 @@ def render_run_form(cfg):
             with ga2:
                 incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
+                error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
 
             st.markdown("##### GIDs & Named Ranges")
             gb1, gb2 = st.columns([1, 1])
             with gb1:
                 gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
+                gid_err = st.text_input("Error Report gid", value=str(cfg.GID_ERROR_REPORT))
                 loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
             with gb2:
                 gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
@@ -652,11 +654,13 @@ def render_run_form(cfg):
             cfg.INCOMING_FOLDER_ID = incoming_id
             cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
             cfg.ORDER_REPORT_FOLDER_ID = order_folder
+            cfg.ERROR_REPORT_FOLDER_ID = error_folder
             cfg.USER_FOLDER_ID = user_folder
             cfg.REDIRECT_PORT = int(redirect_port)
 
             cfg.GID_MANAGER_PDF = gid_mgr
             cfg.GID_ORDER_CSV = gid_order
+            cfg.GID_ERROR_REPORT = gid_err
             cfg.LOCATION_SHEET_TITLE = loc_sheet
             cfg.LOCATION_NAMED_RANGE = loc_range
             cfg.TEMPLATE_UPDATE_RANGE = update_range
@@ -748,10 +752,12 @@ def render_run_form(cfg):
                             "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
                             "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
                             "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
+                            "ERROR_REPORT_FOLDER_ID": cfg.ERROR_REPORT_FOLDER_ID,
                             "USER_FOLDER_ID": cfg.USER_FOLDER_ID,
 
                             "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
                             "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
+                            "GID_ERROR_REPORT": cfg.GID_ERROR_REPORT,
 
                             "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
                             "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
@@ -894,6 +900,9 @@ def render_run_form(cfg):
                                 st.success(f"Manager PDF: {result.manager_pdf_link}")
                             if getattr(result, "full_order_link", None):
                                 st.success(f"Full Order Sheet: {result.full_order_link}")
+                            if getattr(result, "err_exist", None):
+                                if getattr(result, "full_order_link", None):
+                                    st.warning(f"Errors Exist - Some Items Not Listed In Vendor Price Book, View Errors: {result.err_link}")
 
                                 
                             if os.path.exists("last_run.log"):

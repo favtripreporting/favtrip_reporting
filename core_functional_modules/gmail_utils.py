@@ -235,3 +235,51 @@ def email_order_report(
         )
 
     return send_email(gmail_svc, sender, msg)
+
+
+def email_error_report(
+    gmail_svc,
+    sender: str,
+    to_list,
+    cc_list,
+    ts: str,
+    pdf_name: str,
+    pdf_bytes: bytes,
+    sheet_link: str
+    ):
+    msg = EmailMessage()
+
+    msg["Subject"] = f"Error Report – {ts}"
+    msg["From"] = sender
+    msg["To"] = ", ".join(to_list)
+
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+
+    msg.set_content(
+        f"Hi team,\n"
+        f"Some of the items you uploaded are not listed on the Vendor Price Book.\n"
+        f"Google Sheet: {sheet_link}\n"
+        f"Attached: {pdf_name}\n"
+        "—Automated"
+    )
+
+    msg.add_alternative(
+        f"""
+        <p>Hi team,</p>
+        <p>Some of the items you uploaded are not listed on the Vendor Price Book.</p>
+        <p><a href="{sheet_link}">Open Error Report in Google Sheets</a></p>
+        <p>Attached: {pdf_name}</p>
+        <p>—Automated</p>
+        """,
+        subtype="html",
+    )
+
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=pdf_name,
+    )
+
+    return send_email(gmail_svc, sender, msg)
