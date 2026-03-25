@@ -635,7 +635,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     if err_exist:
         err_csv_name = f"Error_Report_{ts}.csv"
-        err_created = upload_to_drive(drive_svc, err_csv_bytes, err_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
+        err_created = upload_to_drive(drive_svc, err_csv_bytes, err_csv_name, CSV_MIME, cfg.ERROR_REPORT_FOLDER_ID, to_sheet=True)
         err_file_id = err_created['id']
         err_link = err_created.get('webViewLink')
         err_gid = first_gid(sheets_svc, err_file_id)

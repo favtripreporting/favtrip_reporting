@@ -901,7 +901,7 @@ def render_run_form(cfg):
                             if getattr(result, "full_order_link", None):
                                 st.success(f"Full Order Sheet: {result.full_order_link}")
                             if getattr(result, "err_exist", None):
-                                if getattr(result, "full_order_link", None):
+                                if getattr(result, "err_link", None):
                                     st.warning(f"Errors Exist - Some Items Not Listed In Vendor Price Book, View Errors: {result.err_link}")
 
                                 
