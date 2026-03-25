@@ -632,6 +632,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     err_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ERROR_REPORT, "csv")
 
     err_exist = csv_has_data_rows(err_csv_bytes)
+    err_link = None
 
     if err_exist:
         err_csv_name = f"Error_Report_{ts}.csv"
