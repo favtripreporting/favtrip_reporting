@@ -338,7 +338,10 @@ class RunResult:
     timestamp: str
     manager_pdf_link: str | None
     full_order_link: str | None
-    user_calc_sheet_id: str | None = None
+    user_calc_sheet_id: str | None = None    
+    err_exist: bool = False
+    err_link: str | None = None
+
 
 
 def run_pipeline(cfg: Config, logger=None) -> RunResult:
