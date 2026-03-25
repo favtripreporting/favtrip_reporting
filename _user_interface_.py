@@ -7,7 +7,7 @@ Overview
 This Streamlit app is the front-end for the FavTrip Reporting pipeline. It lets an authenticated
 Google user upload a Modisoft "Live Items Report", configure who receives emails for each report
 (or fallback recipients), tune advanced IDs/GIDs/time settings, and then orchestrate the
-`favtrip.pipeline.run_pipeline` execution while streaming status updates and a timer.
+`core_functional_modules.pipeline.run_pipeline` execution while streaming status updates and a timer.
 
 Design goals
 ------------
@@ -48,11 +48,11 @@ Operational notes
 
 Dependencies & integration points
 ---------------------------------
-* `favtrip.google_client`: token loading/clearing and service factories (Drive, Sheets, Gmail)
-* `favtrip.config`: the central configuration object. `Config.load()` merges defaults, secrets, and any
+* `core_functional_modules.google_client`: token loading/clearing and service factories (Drive, Sheets, Gmail)
+* `core_functional_modules.config`: the central configuration object. `Config.load()` merges defaults, secrets, and any
   Drive-stored overrides.
-* `favtrip.drive_utils.upload_to_drive`: uploads the incoming report and (optionally) converts to Sheet.
-* `favtrip.pipeline.run_pipeline`: the orchestrated processing step; returns an object with links and
+* `core_functional_modules.drive_utils.upload_to_drive`: uploads the incoming report and (optionally) converts to Sheet.
+* `core_functional_modules.pipeline.run_pipeline`: the orchestrated processing step; returns an object with links and
   timing information used to render the result panel.
 
 This file intentionally includes **documentation-only** additions (module docstring and inline comments)
@@ -87,12 +87,12 @@ from streamlit.components.v1 import html as _html_listener
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 
-from favtrip.google_client import load_valid_token, services, clear_token
-from favtrip.config_store import save_config_to_drive
-from favtrip.config import Config
-from favtrip.logger import StatusLogger
-from favtrip.pipeline import run_pipeline
-from favtrip.drive_utils import upload_to_drive, get_or_create_subfolder
+from core_functional_modules.google_client import load_valid_token, services, clear_token
+from core_functional_modules.config_store import save_config_to_drive
+from core_functional_modules.config import Config
+from core_functional_modules.logger import StatusLogger
+from core_functional_modules.pipeline import run_pipeline
+from core_functional_modules.drive_utils import upload_to_drive, get_or_create_subfolder
 
 
 # =========================
