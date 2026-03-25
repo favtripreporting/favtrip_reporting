@@ -632,6 +632,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     err_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ERROR_REPORT, "csv")
 
     err_exist = csv_has_data_rows(err_csv_bytes)
+    err_link = None
 
     if err_exist:
         err_csv_name = f"Error_Report_{ts}.csv"
@@ -854,7 +855,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             logger.info("Cleaning old output files…")
         for folder in [
             cfg.MANAGER_REPORT_FOLDER_ID,
-            cfg.ORDER_REPORT_FOLDER_ID
+            cfg.ORDER_REPORT_FOLDER_ID,
+            cfg.ERROR_REPORT_FOLDER_ID
         ]:
             cleanup_folder_by_age(
                 drive_svc,
@@ -883,4 +885,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         s = elapsed % 60
         logger.info(f"Run completed in {h:02d}:{m:02d}:{s:02d}")
 
-    return RunResult(True, elapsed, location, ts, manager_link, full_link, err_exist, err_link)
+    return RunResult(
+        ok=True,
+        elapsed_seconds=elapsed,
+        location=location,
+        timestamp=ts,
+        manager_pdf_link=manager_link,
+        full_order_link=full_link,
+        err_exist=err_exist,
+        err_link=err_link
+        )

@@ -19,9 +19,18 @@ DEFAULT_IGNORE_DIRS: Set[str] = {
     ".pytest_cache", ".mypy_cache", ".idea", ".vscode",
 }
 
+
 DEFAULT_IGNORE_NAMES: Set[str] = {
-    "token.json",  # OAuth tokens
+    # OAuth / secrets
+    "token.json",
+    "credentials.json",
+    "web_url_credentials.json",
+    ".env",
+
+    # Common secret patterns
+    "client_secrets.json",
 }
+
 
 DEFAULT_IGNORE_EXTS: Set[str] = {
     ".pyc", ".pyo", ".pyd",
@@ -29,6 +38,15 @@ DEFAULT_IGNORE_EXTS: Set[str] = {
     ".zip", ".tar", ".gz", ".7z",
     ".exe", ".bin",
 }
+
+
+DEFAULT_IGNORE_GLOBS = [
+    "**/*credentials*.json",
+    "**/*.env",
+    "**/*.env.*",
+    "**/*secret*.json",
+]
+
 
 # Basic language hints for code fences
 LANG_BY_EXT = {
@@ -96,9 +114,19 @@ def build_tree(root: Path,
 
             # Ignore by name/extension
             if fname in ignore_names:
+                entry = fname if rel_dir == Path(".") else f"{indent} {fname}"
+                lines_tree.append(entry + " [skipped: secret]")
                 continue
             if p.suffix.lower() in ignore_exts:
                 continue
+
+            
+            # Ignore by glob (secrets)
+            if match_any(p.relative_to(root), DEFAULT_IGNORE_GLOBS):
+                entry = fname if rel_dir == Path(".") else f"{indent} {fname}"
+                lines_tree.append(entry + " [skipped: secret]")
+                continue
+
 
             # Exclude hidden top-level noise by pattern
             if exclude_globs and match_any(p.relative_to(root), exclude_globs):

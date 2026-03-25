@@ -350,7 +350,7 @@ def render_run_form(cfg):
                 st.warning("Choose a .xlsx or .csv file first.")
             else:
                 try:
-                    st.success("Uploading to Google Drive...")
+                    st.warning("Uploading to Google Drive...")
                     drive = _get_drive_service_or_raise(cfg)
 
                     media_mime = _infer_media_mime(incoming_file.name)
@@ -907,8 +907,7 @@ def render_run_form(cfg):
                             if getattr(result, "full_order_link", None):
                                 st.success(f"Full Order Sheet: {result.full_order_link}")
                             if getattr(result, "err_exist", None):
-                                if getattr(result, "err_link", None):
-                                    st.warning(f"Errors Exist - Some Items Not Listed In Vendor Price Book, View Errors: {result.err_link}")
+                                st.warning(f"Errors Exist - Some Items Not Listed In Vendor Price Book, View Errors: {result.err_link}")
 
                                 
                             if os.path.exists("last_run.log"):
