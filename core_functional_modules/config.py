@@ -295,7 +295,7 @@ class Config:
             INCOMING_FOLDER_ID=str(_get_secret("INCOMING_FOLDER_ID", "")),
             MANAGER_REPORT_FOLDER_ID=str(_get_secret("MANAGER_REPORT_FOLDER_ID", "")),
             ORDER_REPORT_FOLDER_ID=str(_get_secret("ORDER_REPORT_FOLDER_ID", "")),
-            ERROR_REPORT_FOLDER_ID=str(_get_secret("ERROR_REPORT_FOLDER_ID", ""))
+            ERROR_REPORT_FOLDER_ID=str(_get_secret("ERROR_REPORT_FOLDER_ID", "")),
             USER_FOLDER_ID=str(_get_secret("USER_FOLDER_ID", "")),
 
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
