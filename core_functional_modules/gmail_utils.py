@@ -245,7 +245,8 @@ def email_error_report(
     ts: str,
     pdf_name: str,
     pdf_bytes: bytes,
-    sheet_link: str
+    sheet_link: str,
+    vendor_price_book_link: str
     ):
     msg = EmailMessage()
 
@@ -260,6 +261,7 @@ def email_error_report(
         f"Hi team,\n"
         f"Some of the items you uploaded are not listed on the Vendor Price Book.\n"
         f"Google Sheet: {sheet_link}\n"
+        f"Vendor Price Book: {vendor_price_book_link}"
         f"Attached: {pdf_name}\n"
         "—Automated"
     )
@@ -269,6 +271,7 @@ def email_error_report(
         <p>Hi team,</p>
         <p>Some of the items you uploaded are not listed on the Vendor Price Book.</p>
         <p><a href="{sheet_link}">Open Error Report in Google Sheets</a></p>
+        <p><a href="{vendor_price_book_link}">Edit Vendor Price Book in Google Sheets</a></p>
         <p>Attached: {pdf_name}</p>
         <p>—Automated</p>
         """,

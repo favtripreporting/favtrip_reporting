@@ -566,13 +566,15 @@ def render_run_form(cfg):
             st.markdown("##### Google Drive / Sheets IDs")
             ga1, ga2 = st.columns([1, 1])
             with ga1:
-                calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
-                mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
                 user_folder = st.text_input("User Calculations Folder ID", value=cfg.USER_FOLDER_ID)
-            with ga2:
-                incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
                 order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
+                mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
                 error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
+                
+            with ga2:
+                calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
+                incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
+                vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
 
             st.markdown("##### GIDs & Named Ranges")
             gb1, gb2 = st.columns([1, 1])
@@ -674,6 +676,8 @@ def render_run_form(cfg):
             cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
             cfg.START_DAY_OF_WEEK = start_dow
             cfg.END_DAY_OF_WEEK = end_dow
+
+            cfg.VENDOR_PRICE_BOOK_LINK = vendor_price_book_link
 
 
             # Per-key recipients from editor
@@ -786,7 +790,9 @@ def render_run_form(cfg):
 
                             "USE_AUTO_ROLLOVER_IF_ONE_WEEK" : cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
                             "START_DAY_OF_WEEK" : cfg.START_DAY_OF_WEEK,
-                            "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK
+                            "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK,
+
+                            "VENDOR_PRICE_BOOK_LINK" : cfg.VENDOR_PRICE_BOOK_LINK
                         }
 
                         # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
@@ -1131,7 +1137,7 @@ if locked:
     err_msg = st.session_state.get("file_error", "An unknown error occurred.")
     st.error(err_msg)
 
-    if st.button("Retry", type="secondary"):
+    if st.button("Retry", type="primary"):
         st.session_state["incoming_locked"] = False
         _rerun()
     st.stop()

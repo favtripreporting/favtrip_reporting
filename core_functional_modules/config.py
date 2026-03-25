@@ -279,6 +279,9 @@ class Config:
     FAILED_INPUT_TIME_TO_LIFE: int = 1
     USER_TIME_TO_LIFE: int = 90
 
+    #Other
+    VENDOR_PRICE_BOOK_LINK: str = "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"
+
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
         """
@@ -340,6 +343,8 @@ class Config:
             USE_AUTO_ROLLOVER_IF_ONE_WEEK=_coerce_bool(_get_secret("USE_AUTO_ROLLOVER_IF_ONE_WEEK", "true")),
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
+
+            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"))
         )
 
         # Optional overlay from Drive JSON config (if creds + file present)

@@ -830,7 +830,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.DEFAULT_ORDER_RECIPIENTS,
         )
 
-        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=cfg.CC_RECIPIENTS, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link)
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=cfg.CC_RECIPIENTS, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
         if logger:
             logger.info("Error report email sent")
 
