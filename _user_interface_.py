@@ -586,7 +586,7 @@ def render_run_form(cfg):
             
             with tab3:
                 gc1, gc2 = st.columns([1, 1])
-                with gb1:
+                with gc1:
                     st.markdown("###### GIDs")
                     gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
                     gid_err = st.text_input("Error Report gid", value=str(cfg.GID_ERROR_REPORT))
