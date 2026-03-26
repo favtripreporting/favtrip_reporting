@@ -563,34 +563,44 @@ def render_run_form(cfg):
 
         # Advanced
         with st.expander("Advanced", expanded=False):
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Folders & Files", "Ranges", "Timing", "Lifecycle", "OAuth"])
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Folders", "Files & Links", "Ranges", "Timing", "Lifecycle", "OAuth"])
             with tab1:
                 ga1, ga2 = st.columns([1, 1])
                 with ga1:
+                    st.markdown("###### Input Folders")
                     user_folder = st.text_input("User Calculations Folder ID", value=cfg.USER_FOLDER_ID)
+                    incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
+                    
+                with ga2:
+                    st.markdown("###### Output Folders")
                     order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
                     mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
                     error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
-                    
-                with ga2:
-                    incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
-                    calc_id = st.text_input("Master Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
-                    vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
 
             with tab2:
                 gb1, gb2 = st.columns([1, 1])
                 with gb1:
+                    calc_id = st.text_input("Master Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
+                with gb2:
+                    vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
+            
+            with tab3:
+                gc1, gc2 = st.columns([1, 1])
+                with gb1:
+                    st.markdown("###### GIDs")
                     gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
                     gid_err = st.text_input("Error Report gid", value=str(cfg.GID_ERROR_REPORT))
                     gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
-                with gb2:
+                with gc2:
+                    st.markdown("###### Titles")
                     loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
                     loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
                     update_range = st.text_input("Update Timestamp Range", value=cfg.TEMPLATE_UPDATE_RANGE)
 
-            with tab3:
-                gc1, gc2 = st.columns([1, 1])
-                with gc1:
+            with tab4:
+                gd1, gd2 = st.columns([1, 1])
+                with gd1:
+                    st.markdown("###### Data Integrity Controls")
                     _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
                     start_dow = st.selectbox(
                         "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
@@ -600,12 +610,14 @@ def render_run_form(cfg):
                         "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
                         help="The day of week that the uploaded data should end at, any other day will raise an error"
                     )
-                with gc2:                                
+                with gd2:
+                    st.markdown("###### Formatting")                                
                     tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
                     tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
-            with tab4:
-                gd1, gd2 = st.columns([1, 1])
-                with gd1:
+            with tab5:
+                ge1, ge2 = st.columns([1, 1])
+                with ge1:
+                    st.markdown("###### One-Time Use Files")
                     failed_input_ttl = st.number_input(
                         "Failed Input Time-To-Life (days)",
                         min_value=0,
@@ -620,7 +632,8 @@ def render_run_form(cfg):
                         value=int(cfg.OUTPUT_TIME_TO_LIFE),
                         help="Delete Manager/Order report files older than this many days after a successful run."
                         )
-                with gd2:
+                with ge2:
+                    st.markdown("###### Recurring Use Files")
                     user_ttl = st.number_input(
                         "User Calculations Time-To-Life (days)",
                         min_value=0,
@@ -629,9 +642,9 @@ def render_run_form(cfg):
                         help="Delete old unused user calculations files older than this many days."
                         )
             
-            with tab5:
-                ge1, ge2 = st.columns([1, 1])
-                with ge1:
+            with tab6:
+                gf1, gf2 = st.columns([1, 1])
+                with gf1:
                     raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                     redirect_port = st.number_input(
                         "Redirect Port (0 = auto)",
