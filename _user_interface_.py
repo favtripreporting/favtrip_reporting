@@ -501,8 +501,16 @@ def render_run_form(cfg):
 
         # Per-Report-Key Recipients
         with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
-        
-            st.caption("Map **Store, Report Key → Emails (comma)**. Leave Store or Key blank for fallback.")
+
+            st.caption("""
+              Map **Store, Report Key → Emails (comma)**.
+              
+              **Email Delivery Priority:**  
+              - `(Store, Key)` → First priority set of emails  
+              - `(, Key)` → Second priority set of emails  
+              - `(Store,)` → Third priority set of emails
+              - If not defined, it will use the default set of emails in `To (comma)` field above
+              """)
         
             rows = []
         
