@@ -501,10 +501,8 @@ def render_run_form(cfg):
 
         # Per-Report-Key Recipients
         with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
-        
-            st.caption("Map **Store, Report Key → Emails (comma)**.")
 
-            st.markdown("""
+            st.caption("""
               Map **Store, Report Key → Emails (comma)**.
               **Email Delivery Priority:**  
               - `(Store+Key)` → First priority  
