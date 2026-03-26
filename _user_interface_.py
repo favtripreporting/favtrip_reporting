@@ -562,9 +562,9 @@ def render_run_form(cfg):
         
                 rk_preview.append(f"{(store_val, key_val)} -> {emails}")
         
-            if rk_preview:
-                with st.expander("Recipient mapping preview"):
-                    st.code("\n".join(rk_preview), language="text")
+            #if rk_preview:
+            #    with st.expander("Recipient mapping preview"):
+            #        st.code("\n".join(rk_preview), language="text")
         
             if rk_issues:
                 st.warning("Recipient configuration issues:\n\n- " + "\n- ".join(rk_issues))
