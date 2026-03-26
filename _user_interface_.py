@@ -502,7 +502,8 @@ def render_run_form(cfg):
         # Per-Report-Key Recipients
         with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
         
-            st.caption("Map **Store, Report Key → Emails (comma)**. Leave Store or Key blank for fallback.")
+            st.caption("Map **Store, Report Key → Emails (comma)**.")
+            st.caption("Emails go to the most specific match first: 1. Store+Key → 2. Key only → 3. Store only → 4. Default.")
         
             rows = []
         
