@@ -563,76 +563,80 @@ def render_run_form(cfg):
 
         # Advanced
         with st.expander("Advanced (IDs, GIDs, Timezone, Redirect Port)", expanded=False):
-            st.markdown("##### Google Drive / Sheets IDs")
-            ga1, ga2 = st.columns([1, 1])
-            with ga1:
-                user_folder = st.text_input("User Calculations Folder ID", value=cfg.USER_FOLDER_ID)
-                order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
-                mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
-                error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
-                
-            with ga2:
-                incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
-                calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
-                vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
+            tab1, tab2, tab3 = st.tabs(["Files & Folders", "Ranges", "Time & OAuth"])
+            #st.markdown("##### Google Drive / Sheets IDs")
+            with tab1:
+                ga1, ga2 = st.columns([1, 1])
+                with ga1:
+                    user_folder = st.text_input("User Calculations Folder ID", value=cfg.USER_FOLDER_ID)
+                    order_folder = st.text_input("Order Report Folder ID", value=cfg.ORDER_REPORT_FOLDER_ID)
+                    mgr_folder = st.text_input("Manager Report Folder ID", value=cfg.MANAGER_REPORT_FOLDER_ID)
+                    error_folder = st.text_input("Error Report Folder ID", value=cfg.ERROR_REPORT_FOLDER_ID)
+                    
+                with ga2:
+                    incoming_id = st.text_input("Incoming Folder ID", value=cfg.INCOMING_FOLDER_ID)
+                    calc_id = st.text_input("Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID)
+                    vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK)
 
-            st.markdown("##### GIDs & Named Ranges")
-            gb1, gb2 = st.columns([1, 1])
-            with gb1:
-                gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
-                gid_err = st.text_input("Error Report gid", value=str(cfg.GID_ERROR_REPORT))
-                loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
-            with gb2:
-                gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
-                loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
-                update_range = st.text_input("Update Timestamp Range", value=cfg.TEMPLATE_UPDATE_RANGE)
+            #st.markdown("##### GIDs & Named Ranges")
+            with tab2:
+                gb1, gb2 = st.columns([1, 1])
+                with gb1:
+                    gid_mgr = st.text_input("Manager Report gid", value=str(cfg.GID_MANAGER_PDF))
+                    gid_err = st.text_input("Error Report gid", value=str(cfg.GID_ERROR_REPORT))
+                    loc_sheet = st.text_input("Location Sheet Title", value=cfg.LOCATION_SHEET_TITLE)
+                with gb2:
+                    gid_order = st.text_input("Order CSV gid", value=str(cfg.GID_ORDER_CSV))
+                    loc_range = st.text_input("Location Named Range", value=cfg.LOCATION_NAMED_RANGE)
+                    update_range = st.text_input("Update Timestamp Range", value=cfg.TEMPLATE_UPDATE_RANGE)
 
-            st.markdown("##### Time & OAuth")
-            gc1, gc2 = st.columns([1, 1])
-            with gc1:
-                tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
-                tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
-                raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
-                redirect_port = st.number_input(
-                    "Redirect Port (0 = auto)",
-                    min_value=0, max_value=65535,
-                    value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
-                    help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
-                )
-
-                user_ttl = st.number_input(
-                    "User Calculations Time-To-Life (days)",
-                    min_value=0,
-                    max_value=3650,
-                    value=int(cfg.USER_TIME_TO_LIFE),
-                    help="Delete old unused user calculations files older than this many days."
+            #st.markdown("##### Time & OAuth")
+            with tab3:
+                gc1, gc2 = st.columns([1, 1])
+                with gc1:
+                    tz = st.text_input("Timestamp Timezone", value=cfg.TIMESTAMP_TZ)
+                    tfmt = st.text_input("Timestamp Format", value=cfg.TIMESTAMP_FMT)
+                    raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
+                    redirect_port = st.number_input(
+                        "Redirect Port (0 = auto)",
+                        min_value=0, max_value=65535,
+                        value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
+                        help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                     )
 
-            with gc2:                                
-                # --- New advanced intake settings ---
-                _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
-                start_dow = st.selectbox(
-                    "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
-                    help="The day of week that the uploaded data should start at, any other day will raise an error"
-                )
-                end_dow = st.selectbox(
-                    "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
-                    help="The day of week that the uploaded data should end at, any other day will raise an error"
-                )
-                failed_input_ttl = st.number_input(
-                    "Failed Input Time-To-Life (days)",
-                    min_value=0,
-                    max_value=3650,
-                    value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
-                    help="Delete old unused incoming files older than this many days."
+                    user_ttl = st.number_input(
+                        "User Calculations Time-To-Life (days)",
+                        min_value=0,
+                        max_value=3650,
+                        value=int(cfg.USER_TIME_TO_LIFE),
+                        help="Delete old unused user calculations files older than this many days."
+                        )
+
+                with gc2:                                
+                    # --- New advanced intake settings ---
+                    _days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Any"]
+                    start_dow = st.selectbox(
+                        "Start day of week", _days, index=_days.index(cfg.START_DAY_OF_WEEK),
+                        help="The day of week that the uploaded data should start at, any other day will raise an error"
                     )
-                output_ttl = st.number_input(
-                    "Output Time-To-Life (days)",
-                    min_value=0,
-                    max_value=3650,
-                    value=int(cfg.OUTPUT_TIME_TO_LIFE),
-                    help="Delete Manager/Order report files older than this many days after a successful run."
+                    end_dow = st.selectbox(
+                        "End day of week", _days, index=_days.index(cfg.END_DAY_OF_WEEK),
+                        help="The day of week that the uploaded data should end at, any other day will raise an error"
                     )
+                    failed_input_ttl = st.number_input(
+                        "Failed Input Time-To-Life (days)",
+                        min_value=0,
+                        max_value=3650,
+                        value=int(cfg.FAILED_INPUT_TIME_TO_LIFE),
+                        help="Delete old unused incoming files older than this many days."
+                        )
+                    output_ttl = st.number_input(
+                        "Output Time-To-Life (days)",
+                        min_value=0,
+                        max_value=3650,
+                        value=int(cfg.OUTPUT_TIME_TO_LIFE),
+                        help="Delete Manager/Order report files older than this many days after a successful run."
+                        )
 
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
