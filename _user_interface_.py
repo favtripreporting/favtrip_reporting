@@ -502,7 +502,16 @@ def render_run_form(cfg):
         # Per-Report-Key Recipients
         with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
         
-            st.caption("Map **Store, Report Key → Emails (comma)**.\nEmails go to the most specific match first: 1. Store+Key → 2. Key only → 3. Store only → 4. Default.")
+            st.caption("Map **Store, Report Key → Emails (comma)**.")
+
+            st.markdown("""
+              Map **Store, Report Key → Emails (comma)**.
+              **Email Delivery Priority:**  
+              - `(Store+Key)` → First priority  
+              - `(, Key)` → Second priority  
+              - `(Store,)` → Third priority  
+              - `()` → Default
+              """)
         
             rows = []
         
