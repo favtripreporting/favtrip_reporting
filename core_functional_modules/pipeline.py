@@ -708,14 +708,16 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
         to_err = _fallback_recipients(
             "ERROR REPORT",
+            cfg.ERROR_RECIPIENTS,
             cfg.TO_RECIPIENTS,
             cfg.DEFAULT_ORDER_RECIPIENTS,
         )
 
-        
+                
         err_cc_list = list(dict.fromkeys(
-            _clean_emails(cfg.CC_RECIPIENTS)
-            + _clean_emails(cfg.TO_RECIPIENTS)
+            set(_clean_emails(cfg.TO_RECIPIENTS))
+            | set(_clean_emails(cfg.CC_RECIPIENTS))
+            - set(to_err)
         ))
 
 
