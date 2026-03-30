@@ -571,7 +571,7 @@ def render_run_form(cfg):
 
         # Advanced
         with st.expander("Advanced", expanded=False):
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Folders", "Files & Links", "Ranges", "Timing", "Lifecycle", "OAuth"])
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Folders", "Files & Links", "Ranges", "Timing", "Lifecycle", "Technical"])
             with tab1:
                 ga1, ga2 = st.columns([1, 1])
                 with ga1:
