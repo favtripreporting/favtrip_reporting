@@ -673,14 +673,23 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if err_exist:
         err_csv_name = f"Error_Report_{ts}.csv"
 
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(rows_list[0])
+        writer.writerows(filtered_err_rows)
+
+        filtered_err_csv_bytes = output.getvalue().encode("utf-8-sig")
+
         err_created = upload_to_drive(
             drive_svc,
-            err_csv_bytes,
+            filtered_err_csv_bytes,
             err_csv_name,
             CSV_MIME,
             cfg.ERROR_REPORT_FOLDER_ID,
             to_sheet=True
         )
+
 
         err_file_id = err_created["id"]
         err_link = err_created.get("webViewLink")
@@ -700,14 +709,20 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.DEFAULT_ORDER_RECIPIENTS,
         )
 
-        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=cfg.CC_RECIPIENTS, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
+        
+        err_cc_list = list(dict.fromkeys(
+            _clean_emails(cfg.CC_RECIPIENTS)
+            + _clean_emails(cfg.TO_RECIPIENTS)
+        ))
+
+
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=err_cc_list, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
         if logger:
             logger.info("Error report email sent")
         
         raise VendorPriceBookError(
-            f"""One or more items were not found in the Vendor Price Book. The list of missing items has been sent to the technical support email.
-            Once those items are added to the Vendor Price Book, please rerun the pipeline.
-            
+            f"""One or more items were not found in the Vendor Price Book. The list of missing items has been sent to the technical support email.\n
+            Once those items are added to the Vendor Price Book, please rerun the pipeline.\n
             Error Report: {err_link}
             """
         )
