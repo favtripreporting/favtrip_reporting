@@ -258,8 +258,8 @@ def email_error_report(
         msg["Cc"] = ", ".join(cc_list)
 
     msg.set_content(
-        f"Hi team,\n"
-        f"Some of the items you uploaded are not listed on the Vendor Price Book.\n"
+        f"Hi Technical Support Team,\n"
+        f"A user tried using the reporting pipeline, however some of the items that were uploaded are not listed on the Vendor Price Book. The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes. Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.\n"
         f"Google Sheet: {sheet_link}\n"
         f"Vendor Price Book: {vendor_price_book_link}"
         f"Attached: {pdf_name}\n"
@@ -268,8 +268,8 @@ def email_error_report(
 
     msg.add_alternative(
         f"""
-        <p>Hi team,</p>
-        <p>Some of the items you uploaded are not listed on the Vendor Price Book.</p>
+        <p>Hi Technical Support Team,</p>
+        <p>A user tried using the reporting pipeline, however some of the items that were uploaded are not listed on the Vendor Price Book. The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes. Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.</p>
         <p><a href="{sheet_link}">Open Error Report in Google Sheets</a></p>
         <p><a href="{vendor_price_book_link}">Edit Vendor Price Book in Google Sheets</a></p>
         <p>Attached: {pdf_name}</p>
