@@ -598,7 +598,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info("Refreshing reference sheets (prefix 'REFR: ' or 'REFC ')…")
         
-    
+    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix = "REFA: ", logger=logger)
+
+    time.sleep(5)
+
     refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix = "REFR: ", logger=logger)
     
     refresh_sheets_with_prefix_chunked(
