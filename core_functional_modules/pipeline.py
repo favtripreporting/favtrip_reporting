@@ -126,6 +126,10 @@ class IncomingDataValidationError(Exception):
     """Raised when the incoming report is not 1 or 2 full weeks as configured."""
     pass
 
+class VendorPriceBookError(Exception):
+    """Raised when one or more items to be ordered are not found on the Vendor Price Book."""
+    pass
+
 _DOW_MAP = {
     "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
     "Friday": 4, "Saturday": 5, "Sunday": 6, "Any": None,
@@ -594,7 +598,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info("Refreshing reference sheets (prefix 'REFR: ' or 'REFC ')…")
         
-    
+    refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix = "REFA: ", logger=logger)
+
+    time.sleep(5)
+
     refresh_sheets_with_prefix(sheets_svc, calc_ss_id, prefix = "REFR: ", logger=logger)
     
     refresh_sheets_with_prefix_chunked(
@@ -631,19 +638,104 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     err_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ERROR_REPORT, "csv")
 
-    err_exist = csv_has_data_rows(err_csv_bytes)
+    err_text = err_csv_bytes.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(err_text))
+    rows_list = list(reader)
+
+    if not rows_list or len(rows_list) <= 1:
+        err_exist = False
+    else:
+        headers = [h.strip() for h in rows_list[0]]
+        lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+
+        if "report_key" not in lower_idx:
+            raise RuntimeError("Error report missing Report_Key column")
+
+        report_idx = lower_idx["report_key"]
+    
+    if cfg.USE_ALL_REPORT_KEYS:
+        allowed_keys = None  # no filtering
+    else:
+        allowed_keys = {k.upper() for k in (cfg.REPORT_KEY_RUN_LIST or [])}
+
+    filtered_err_rows = []
+
+    for r in rows_list[1:]:
+        key = (r[report_idx] if report_idx < len(r) else "").strip().upper()
+
+        if not key:
+            continue
+
+        if allowed_keys is None or key in allowed_keys:
+            filtered_err_rows.append(r)
+
+    err_exist = bool(filtered_err_rows)
+
     err_link = None
 
     if err_exist:
         err_csv_name = f"Error_Report_{ts}.csv"
-        err_created = upload_to_drive(drive_svc, err_csv_bytes, err_csv_name, CSV_MIME, cfg.ERROR_REPORT_FOLDER_ID, to_sheet=True)
-        err_file_id = err_created['id']
-        err_link = err_created.get('webViewLink')
+
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(rows_list[0])
+        writer.writerows(filtered_err_rows)
+
+        filtered_err_csv_bytes = output.getvalue().encode("utf-8-sig")
+
+        err_created = upload_to_drive(
+            drive_svc,
+            filtered_err_csv_bytes,
+            err_csv_name,
+            CSV_MIME,
+            cfg.ERROR_REPORT_FOLDER_ID,
+            to_sheet=True
+        )
+
+
+        err_file_id = err_created["id"]
+        err_link = err_created.get("webViewLink")
+
         err_gid = first_gid(sheets_svc, err_file_id)
         err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf")
         err_pdf_name = f"Error_Report_{ts}.pdf"
+
         if logger:
-            logger.info(f"Uploaded Error Sheet: {err_created.get('webViewLink')}")
+            logger.info(f"Uploaded filtered Error Sheet: {err_link}")
+
+        # Step 4C.1: Send Error Report if Needed
+
+        to_err = _fallback_recipients(
+            "ERROR REPORT",
+            cfg.ERROR_RECIPIENTS,
+            cfg.TO_RECIPIENTS,
+            cfg.DEFAULT_ORDER_RECIPIENTS,
+        )
+
+                
+        err_cc_list = list(dict.fromkeys(
+            set(_clean_emails(cfg.TO_RECIPIENTS))
+            | set(_clean_emails(cfg.CC_RECIPIENTS))
+            - set(to_err)
+        ))
+
+        to_err = sorted(set(to_err) | set(err_cc_list))
+
+
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=None, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
+        if logger:
+            logger.info("Error report email sent")
+        
+        raise VendorPriceBookError(
+            f"""One or more items were not found in the Vendor Price Book. The list of missing items has been sent to the technical support email.\n
+            Once those items are added to the Vendor Price Book, please rerun the pipeline.\n
+            Error Report: {err_link}
+            """
+        )
+
+
+
 
     # Step 4D: Full order upload (CSV) and export (PDF)
     full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
@@ -821,21 +913,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info("Separate full order email disabled")
 
-    # Step 4H: Send Error Report if Needed
-
-    if err_exist:
-
-        to_err = _fallback_recipients(
-            "ERROR REPORT",
-            cfg.TO_RECIPIENTS,
-            cfg.DEFAULT_ORDER_RECIPIENTS,
-        )
-
-        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=cfg.CC_RECIPIENTS, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
-        if logger:
-            logger.info("Error report email sent")
-
-    # Step 4I: File Cleanup
+    # Step 4H: File Cleanup
 
     try:
         if logger:

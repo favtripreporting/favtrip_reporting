@@ -255,6 +255,7 @@ class Config:
     # Email config
     TO_RECIPIENTS: List[str] = field(default_factory=lambda: ["FavtripReporting@gmail.com"])
     CC_RECIPIENTS: List[str] = None
+    ERROR_RECIPIENTS: List[str] = field(default_factory=lambda: ["FavtripReporting@gmail.com"])
     USE_ALL_REPORT_KEYS: bool = False
     REPORT_KEY_RUN_LIST: List[str] = field(default_factory=lambda: ["COFFEE"])
     REPORT_KEY_RECIPIENTS: Dict[str, List[str]] = None
@@ -316,6 +317,7 @@ class Config:
 
             TO_RECIPIENTS=_coerce_csv(_get_secret("TO_RECIPIENTS", "")),
             CC_RECIPIENTS=_coerce_csv(_get_secret("CC_RECIPIENTS", "")),
+            ERROR_RECIPIENTS=_coerce_csv(_get_secret("ERROR_RECIPIENTS", "")),
             USE_ALL_REPORT_KEYS=_coerce_bool(_get_secret("USE_ALL_REPORT_KEYS", "false")),
             REPORT_KEY_RUN_LIST=[s.upper() for s in _coerce_csv(_get_secret("REPORT_KEY_RUN_LIST", ""))],
             REPORT_KEY_RECIPIENTS=_coerce_json(_get_secret("REPORT_KEY_RECIPIENTS", "{}")),

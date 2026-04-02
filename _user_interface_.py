@@ -571,7 +571,7 @@ def render_run_form(cfg):
 
         # Advanced
         with st.expander("Advanced", expanded=False):
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Folders", "Files & Links", "Ranges", "Timing", "Lifecycle", "OAuth"])
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Folders", "Files & Links", "Ranges", "Timing", "Lifecycle", "Technical"])
             with tab1:
                 ga1, ga2 = st.columns([1, 1])
                 with ga1:
@@ -675,6 +675,13 @@ def render_run_form(cfg):
                         value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                         help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                     )
+                with gf2:
+                    error_recipients = st.text_input(
+                        "Technical Support (comma)",
+                        value=",".join(cfg.ERROR_RECIPIENTS or []),
+                        help="If errors arise such as missing items in the Vendor Price Book, the error report will be sent here."
+                    )
+
 
         save_drive_defaults = st.checkbox("Update defaults", value=False)
 
@@ -686,6 +693,7 @@ def render_run_form(cfg):
             # Apply per-run config
             cfg.TO_RECIPIENTS = _split_emails(to)
             cfg.CC_RECIPIENTS = _split_emails(cc)
+            cfg.ERROR_RECIPIENTS = _split_emails(error_recipients)
             cfg.USE_ALL_REPORT_KEYS = use_all
             cfg.REPORT_KEY_RUN_LIST = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
 
@@ -817,6 +825,7 @@ def render_run_form(cfg):
 
                             "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
                             "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
+                            "ERROR_RECIPIENTS": cfg.ERROR_RECIPIENTS,
 
                             "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
                             "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
