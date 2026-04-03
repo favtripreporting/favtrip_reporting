@@ -383,6 +383,8 @@ class Config:
         except Exception:
             # Fail-open by design
             pass
+        
+        return cfg
 
 
     # -------------------------------------------------------------------------
