@@ -282,6 +282,12 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
         f.write(creds.to_json())
     return creds
 
+def clean_tag(s: str) -> str:
+    import re
+    s = (s or "").strip()
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", s)
+    return s.strip("-") or "UNKNOWN"
+
 # --- OAuth Redirect Handler (Web/PKCE only) ---
 
 
@@ -811,13 +817,6 @@ def render_run_form(cfg):
             
                 emails_raw = (r.get("Emails (comma)") or "").strip()
                 emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
-            
-                # Mirror pipeline normalization for tags (report key + store tag)
-                def clean_tag(s: str) -> str:
-                    import re
-                    s = (s or "").strip()
-                    s = re.sub(r"[^A-Za-z0-9._-]+", "-", s)
-                    return s.strip("-") or "UNKNOWN"
             
                 store_tag = clean_tag(store) if store else None
                 key_tag = clean_tag(key) if key else None
