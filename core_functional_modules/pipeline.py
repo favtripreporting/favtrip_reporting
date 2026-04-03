@@ -346,7 +346,7 @@ def should_run(cfg, report_key, sub_key):
         if sub_key in allowed:
             return True
         if fmt_sub_key in allowed:
-            True
+            return True
         if report_key in allowed:
             return True
         return False
@@ -894,10 +894,11 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         store_tag = clean_tag(store)
         sub_tag = clean_tag(sub_key)
 
-        name_parts = [tag]
+        name_parts = []
+        name_parts.append(store_tag)
+        name_parts.append(tag)
         if sub_tag:
             name_parts.append(sub_tag)
-        name_parts.append(store_tag)
 
         csv_name = f"Order_Report_{'_'.join(name_parts)}_{ts}.csv"
     
@@ -912,7 +913,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         # Export the Google Sheet as PDF
         pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{tag}_{store_tag}_{ts}.pdf"
+        pdfname = f"Order_Report_{'_'.join(name_parts)}_{ts}.pdf"
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
