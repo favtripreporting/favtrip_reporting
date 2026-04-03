@@ -528,18 +528,22 @@ def render_run_form(cfg):
 
         # Report Keys
         st.markdown("##### Report Keys")
-        colk1, colk2 = st.columns([0.45, 1.55])
+        colk1, colk2, colk3 = st.columns([1, 1, 2])
         with colk1:
             use_all = st.toggle(
                 "Use all keys from CSV",
                 value=cfg.USE_ALL_REPORT_KEYS,
                 help="ON: process every key found. OFF: only the keys you list."
             )
+
         with colk2:
+            pass
+
+        with colk3:
             report_keys = st.text_input(
                 "Keys to run (comma)",
                 value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
-                help="Used when 'Use all keys' is OFF. Example: COFFEE,GROCERY"
+                help="Used when 'Use all keys' is OFF. For Sub_Report_Keys use Report_Key-Sub_Report_Key. Example: COFFEE,GROCERY,BEV-7UP"
             )
 
         # General Behavior

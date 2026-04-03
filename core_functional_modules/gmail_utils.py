@@ -181,7 +181,6 @@ def email_order_report(
     to_list,
     cc_list,
     key: str,
-    sub_key: str,
     tag: str,
     ts: str,
     location: str,

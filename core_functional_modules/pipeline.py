@@ -336,6 +336,8 @@ def _fallback_recipients(hint, *candidates):
 def should_run(cfg, report_key, sub_key):
     allowed = set(cfg.REPORT_KEY_RUN_LIST or [])
 
+    fmt_sub_key = f"{report_key}-{sub_key}"
+
     if cfg.USE_ALL_REPORT_KEYS:
         return True
 
@@ -343,6 +345,8 @@ def should_run(cfg, report_key, sub_key):
     if sub_key:
         if sub_key in allowed:
             return True
+        if fmt_sub_key in allowed:
+            True
         if report_key in allowed:
             return True
         return False
