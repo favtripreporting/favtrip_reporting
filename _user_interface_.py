@@ -961,8 +961,10 @@ def render_run_form(cfg):
                         err = result_holder["error"]
                         err_text = str(err)
 
-                        # Always lock out Run after a failure until a new upload occurs
-                        st.session_state._both_uploads_ok() = False
+                        # Always lock out Run after a failure until a new upload occurs                        
+                        st.session_state.sales_uploaded_ok = False
+                        st.session_state.vendor_uploaded_ok = False
+
 
                         # --- Special case: "Please only upload 1 or 2 full weeks of data"
                         weeks_err = "Please only upload 1 or 2 full weeks of data" in err_text
@@ -1016,7 +1018,9 @@ def render_run_form(cfg):
                                     st.session_state["last_run_timestamp"] = result.timestamp
 
 
-                            st.session_state._both_uploads_ok() = False
+                            
+                            st.session_state.sales_uploaded_ok = False
+                            st.session_state.vendor_uploaded_ok = False
                             st.session_state.incoming_uploader_version += 1
                             st.session_state.incoming_selected_name = None
 
@@ -1118,14 +1122,18 @@ if not st.session_state.auth_required:
     cfg = Config.load()
 
 # Session state defaults
-if "incoming_selected_name" not in st.session_state:
-    st.session_state.incoming_selected_name = None
-if _both_uploads_ok() not in st.session_state:
-    st.session_state._both_uploads_ok() = False
-if "offer_log_download" not in st.session_state:
-    st.session_state.offer_log_download = False
-if "offer_log_download" not in st.session_state:
-    st.session_state.offer_log_download = False
+defaults = {
+    "sales_selected_name": None,
+    "vendor_selected_name": None,
+    "sales_uploaded_ok": False,
+    "vendor_uploaded_ok": False,
+    "offer_log_download": False,
+}
+
+    
+for key, default in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
 # Sidebar (always visible)
