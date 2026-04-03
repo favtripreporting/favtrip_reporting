@@ -384,8 +384,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         )
 
         user_level_folder_id = incoming_folder["id"]
-        user_sales_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "01 Sales Data Inputs")
-        user_vendor_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "02 Vendor Price Data Inputs")
+        user_sales_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "01 Sales Data Inputs")["id"]
+        user_vendor_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "02 Vendor Price Data Inputs")["id"]
 
 
         if logger:
