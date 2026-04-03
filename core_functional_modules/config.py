@@ -349,6 +349,20 @@ class Config:
             VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111")),
         )
 
+        normalized = {}
+        for k, v in cfg.REPORT_KEY_RECIPIENTS.items():
+            if isinstance(k, (list, tuple)):
+                if len(k) == 2:
+                    normalized[(k[0], k[1], None)] = v
+                elif len(k) == 3:
+                    normalized[tuple(k)] = v
+            else:
+                # defensive fallback
+                normalized[(None, k, None)] = v
+
+        cfg.REPORT_KEY_RECIPIENTS = normalized
+
+
         # Optional overlay from Drive JSON config (if creds + file present)
         # ---------------- Drive-backed config overlay ----------------
         try:

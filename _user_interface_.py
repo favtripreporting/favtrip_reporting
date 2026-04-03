@@ -582,12 +582,14 @@ def render_run_form(cfg):
                     rows.append({
                         "Store (optional)": store or "",
                         "Report Key (optional)": key or "",
+                        "Sub-Report Key (optional)": sub_key or "",
                         "Emails (comma)": ",".join(emails or [])
                     })
             else:
                 rows = [{
                     "Store (optional)": "",
                     "Report Key (optional)": "",
+                    "Sub-Report Key (optional)": "",
                     "Emails (comma)": ""
                 }]
         
@@ -606,6 +608,7 @@ def render_run_form(cfg):
         
                 store = (r.get("Store (optional)") or "").strip().upper()
                 key = (r.get("Report Key (optional)") or "").strip().upper()
+                sub_key = (r.get("Sub-Report Key (optional)") or "").strip().upper() or None
                 emails_raw = (r.get("Emails (comma)") or "").strip()
         
                 emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
@@ -613,15 +616,15 @@ def render_run_form(cfg):
                 store_val = store if store else None
                 key_val = key if key else None
         
-                if emails and not store_val and not key_val:
+                if emails and not (store_val or key_val or sub_key):
                     rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
                     continue
         
-                if (store_val or key_val) and not emails:
+                if (store_val or key_val or sub_key) and not emails:
                     rk_issues.append(f"Row {i+1}: Missing email(s).")
                     continue
         
-                rk_map[(store_val, key_val)] = emails
+                rk_map[(store_tag, key_tag, sub_tag)] = emails
         
                 rk_preview.append(f"{(store_val, key_val)} -> {emails}")
         
@@ -812,11 +815,12 @@ def render_run_form(cfg):
                     return s.strip("-") or "UNKNOWN"
             
                 store_tag = clean_tag(store) if store else None
-                key_tag   = clean_tag(key) if key else None
+                key_tag = clean_tag(key) if key else None
+                sub_tag = clean_tag(sub_key) if sub_key else None
             
-                if (store_tag or key_tag) and emails:
+                if (store_tag or key_tag or sub_tag) and emails:
                     # >>> THIS is the part that actually records the mapping
-                    rk_map[(store_tag, key_tag)] = emails
+                    rk_map[(store_tag, key_tag, sub_tag)] = emails
             
             cfg.REPORT_KEY_RECIPIENTS = rk_map
 

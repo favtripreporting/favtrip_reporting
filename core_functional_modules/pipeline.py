@@ -333,6 +333,23 @@ def _fallback_recipients(hint, *candidates):
         f"(TO_RECIPIENTS, DEFAULT_ORDER_RECIPIENTS, or per-report-key)."
     )
 
+def should_run(report_key, sub_key):
+    allowed = set(cfg.REPORT_KEY_RUN_LIST or [])
+
+    if cfg.USE_ALL_REPORT_KEYS:
+        return True
+
+    # explicit sub-report key
+    if sub_key:
+        if sub_key in allowed:
+            return True
+        if report_key in allowed:
+            return True
+        return False
+
+    # no sub key
+    return report_key in allowed
+
 
 @dataclass
 class RunResult:
@@ -703,6 +720,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     else:
         headers = [h.strip() for h in rows_list[0]]
         lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+        sub_idx = lower_idx.get("sub_report_key")
 
         if "report_key" not in lower_idx:
             raise RuntimeError("Error report missing Report_Key column")
@@ -821,6 +839,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     # Find required columns (case-insensitive)
     lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+    sub_idx = lower_idx.get("sub_report_key")
     
     if "report_key" not in lower_idx:
         raise RuntimeError("Report_Key column missing.")
@@ -843,12 +862,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     for r in rows:
         report_key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
         store = (str(r.get(headers[store_idx]) or "").strip()) or "UNKNOWN"
-        groups.setdefault((store.upper(), report_key.upper()), []).append(r)
+
+        sub_key = None
+        if sub_idx is not None:
+            sub_key = (str(r.get(headers[sub_idx]) or "").strip().upper()) or None
+
+        groups.setdefault((store.upper(), report_key.upper(), sub_key), []).append(r)
     
     
-    for (store, key), key_rows in groups.items():
-    
-        if not cfg.USE_ALL_REPORT_KEYS and key not in (cfg.REPORT_KEY_RUN_LIST or []):
+    for (store, key, sub_key), key_rows in groups.items():
+
+        if not should_run(key, sub_key):
             continue
     
         # Build CSV text in memory
@@ -864,8 +888,14 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         tag = clean_tag(key)
         store_tag = clean_tag(store)
-    
-        csv_name = f"Order_Report_{tag}_{store_tag}_{ts}.csv"
+        sub_tag = clean_tag(store)
+
+        name_parts = [tag]
+        if sub_tag:
+            name_parts.append(sub_tag)
+        name_parts.append(store_tag)
+
+        csv_name = f"Order_Report_{'_'.join(name_parts)}_{ts}.csv"
     
         # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
         created = upload_to_drive(
@@ -882,17 +912,20 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
-        if cfg.REPORT_KEY_RECIPIENTS:
-            store_key = (store_tag, tag)
-            key_only = (None, tag)
-            store_only = (store_tag, None)
         
-            if store_key in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[store_key]
-            elif key_only in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[key_only]
-            elif store_only in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[store_only]
+        candidates = None
+        lookup_order = [
+            (store_tag, tag, sub_tag),
+            (store_tag, tag, None),
+            (None, tag, sub_tag),
+            (None, tag, None),
+            (store_tag, None, None),
+        ]
+
+        for lk in lookup_order:
+            if lk in cfg.REPORT_KEY_RECIPIENTS:
+                candidates = cfg.REPORT_KEY_RECIPIENTS[lk]
+                break
     
         recipients = _fallback_recipients(
             f"REPORT_KEY {tag}",
