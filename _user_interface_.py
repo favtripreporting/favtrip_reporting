@@ -1150,6 +1150,7 @@ defaults = {
     "sales_uploaded_ok": False,
     "vendor_uploaded_ok": False,
     "offer_log_download": False,
+    "incoming_uploader_version": 0
 }
 
     
