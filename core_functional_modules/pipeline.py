@@ -939,7 +939,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         )
 
         email_tag_parts = [tag, sub_tag]
-        email_tag = '_'.join(email_tag_parts)
+        email_tag = ' - '.join(email_tag_parts)
 
 
         email_order_report(
