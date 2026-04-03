@@ -892,7 +892,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         tag = clean_tag(key)
         store_tag = clean_tag(store)
-        sub_tag = clean_tag(store)
+        sub_tag = clean_tag(sub_key)
 
         name_parts = [tag]
         if sub_tag:
@@ -948,7 +948,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             to_list=recipients,
             cc_list=cfg.CC_RECIPIENTS,
             key=key,
-            tag=email_tag_parts,
+            tag=email_tag,
             ts=ts,
             location=store,
             pdf_name=pdfname,
