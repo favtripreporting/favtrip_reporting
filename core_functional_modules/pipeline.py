@@ -365,7 +365,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
-    user_incoming_folder_id = None
+    user_sales_folder_id = None
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
         user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
@@ -383,7 +383,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             user_id_for_name
         )
 
-        user_incoming_folder_id = incoming_folder["id"]
+        user_level_folder_id = incoming_folder["id"]
+        user_sales_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "01 Sales Data Inputs")
+        user_vendor_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "02 Vendor Price Data Inputs")
+
 
         if logger:
             logger.info(
@@ -472,43 +475,66 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     # Fallback: if per-user incoming folder could not be resolved,
     # use the shared incoming folder
-    if not user_incoming_folder_id:
+    if not user_sales_folder_id:
         if logger:
             logger.warn(
                 "Per-user incoming folder not resolved; "
                 f"falling back to shared {cfg.INCOMING_FOLDER_ID}"
             )
-        user_incoming_folder_id = cfg.INCOMING_FOLDER_ID
+        user_sales_folder_id = cfg.INCOMING_FOLDER_ID
 
     # Step 1: latest incoming
     if logger:
-        logger.info(f"Finding latest incoming spreadsheet in {user_incoming_folder_id}…")
+        logger.info(f"Finding latest incoming sales spreadsheet in {user_sales_folder_id}…")
 
-    latest = None
+    latest_sales = None
     n = 10
     for attempt in range(n):
-        latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
-        if latest:
+        latest_sales = find_latest_sheet(drive_svc, user_sales_folder_id)
+        if latest_sales:
             break
 
         if logger:
             logger.info(
-                f"No incoming sheet in {user_incoming_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
+                f"No incoming sheet in {user_sales_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
             )
         time.sleep(2)
 
-    if not latest:
+    if not latest_sales:
         raise SystemExit(
-            "No incoming report found in per-user incoming folder."
+            "No incoming sales report found in per-user incoming folder."
         )
     
-    new_report_id = latest["id"]
+
+    if logger:
+        logger.info(f"Finding latest incoming vendor spreadsheet in {user_vendor_folder_id}…")
+
+    latest_vendor = None
+    n = 10
+    for attempt in range(n):
+        latest_vendor = find_latest_sheet(drive_svc, user_vendor_folder_id)
+        if latest_vendor:
+            break
+
+        if logger:
+            logger.info(
+                f"No incoming sheet in {user_vendor_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
+            )
+        time.sleep(2)
+
+    if not latest_vendor:
+        raise SystemExit(
+            "No incoming vendor report found in per-user incoming folder."
+        )
+    
+    new_sales_report_id = latest_sales["id"]
+    new_vendor_report_id = latest_vendor["id"]
 
     # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
     if logger:
         logger.info("Validating incoming report (header, dates, week boundaries)…")
-    first_title, first_sid = get_first_sheet_meta(sheets_svc, new_report_id)
-    values = get_values_2d(sheets_svc, new_report_id, first_title, "A:Z")
+    first_title, first_sid = get_first_sheet_meta(sheets_svc, new_sales_report_id)
+    values = get_values_2d(sheets_svc, new_sales_report_id, first_title, "A:Z")
 
     h_ix, d_cix = _find_header_and_date_col(values)
     if h_ix is None or d_cix is None:
@@ -550,6 +576,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         current_week_rows = _slice_rows(body_rows, d_cix, keep_newest7)
 
         # Create fresh target sheets
+        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
+        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Last Week")
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
 
@@ -565,6 +593,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         # One week + rollover ON → current behavior
         if logger:
             logger.info("Detected 1 week; auto-rollover enabled → copying old Current→Last and inserting new Current")
+        
+        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
+        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
+
         delete_sheet(sheets_svc, calc_ss_id, "Last Week")
         try:
             copy_sheet_as(sheets_svc, calc_ss_id, "Current Week", "Last Week")
@@ -574,7 +606,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             if logger:
                 logger.warn("No 'Current Week' sheet exists to copy")
         delete_sheet(sheets_svc, calc_ss_id, "Current Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
+        copy_first_sheet_as(sheets_svc, new_sales_report_id, calc_ss_id, "Current Week")
 
         # Trim header for Current Week
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
@@ -585,10 +617,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         # One week + rollover OFF → Current Week only; Last Week blank
         if logger:
             logger.info("Detected 1 week; auto-rollover disabled → Current only, Last Week blank")
+        
+        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
+        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
         delete_sheet(sheets_svc, calc_ss_id, "Last Week")
         delete_sheet(sheets_svc, calc_ss_id, "Current Week")
         add_blank_sheet(sheets_svc, calc_ss_id, "Last Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
+        copy_first_sheet_as(sheets_svc, new_sales_report_id, calc_ss_id, "Current Week")
 
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
@@ -918,16 +953,23 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     try:
         if logger:
             logger.info("Cleaning up used incoming file…")
-        trash_file(drive_svc, new_report_id)
+        trash_file(drive_svc, new_sales_report_id)
+        trash_file(drive_svc, new_vendor_report_id)
 
         if logger:
             logger.info("Cleaning old incoming files…")
-        cleanup_folder_by_age(
-            drive_svc,
-            user_incoming_folder_id,
-            cfg.FAILED_INPUT_TIME_TO_LIFE,
-            logger
-        )
+        for folder in [
+            user_sales_folder_id,
+            user_vendor_folder_id
+        ]:
+            cleanup_folder_by_age(
+                drive_svc,
+                folder,
+                cfg.OUTPUT_TIME_TO_LIFE,
+                logger
+            )
+        
+
 
         if logger:
             logger.info("Cleaning old output files…")
