@@ -452,10 +452,26 @@ def render_run_form(cfg):
     
     run_form_wrapper_classes = "ft-card ft-row"
 
+    # A file is "dirty" if the user has selected something not yet uploaded
     files_dirty = (
         st.session_state.sales_selected_name is not None
         or st.session_state.vendor_selected_name is not None
     )
+
+    # Have we successfully uploaded both files?
+    had_ok = (
+        st.session_state.sales_uploaded_ok
+        and st.session_state.vendor_uploaded_ok
+    )
+
+    # Final gating rule
+    run_enabled = (
+        had_ok
+        and not files_dirty
+        and not st.session_state.get("freeze_ui", False)
+    )
+
+    run_disabled = not run_enabled
     
     # OPEN the wrapper with real HTML (no entities)
     st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
@@ -473,11 +489,6 @@ def render_run_form(cfg):
         # A) If a file is currently selected but not uploaded -> disable Run
         # B) If no file selected and we have a prior successful upload -> enable Run
         # C) Otherwise (no prior upload or ambiguous state) -> disable Run
-        file_selected = st.session_state.get("incoming_selected_name") is not None
-        had_ok = st.session_state.get(_both_uploads_ok(), False)
-
-        run_enabled = (files_dirty or st.session_state.get("freeze_ui", False))
-        run_disabled = not run_enabled
 
         with col_run:
             # Right-align and full-width, matching Upload Now
@@ -1022,7 +1033,6 @@ def render_run_form(cfg):
                             st.session_state.sales_uploaded_ok = False
                             st.session_state.vendor_uploaded_ok = False
                             st.session_state.incoming_uploader_version += 1
-                            st.session_state.incoming_selected_name = None
 
                             status.update(label="✅ Completed", state="complete")
                             time.sleep(10)
@@ -1049,7 +1059,6 @@ def render_run_form(cfg):
                 # Unfreeze, but force a new file upload before the next run
                 st.session_state["freeze_ui"] = False
                 st.session_state[_both_uploads_ok()] = False
-                st.session_state["incoming_selected_name"] = None
                 st.session_state["incoming_uploader_version"] += 1  # resets uploader widget
                 _rerun()
 
