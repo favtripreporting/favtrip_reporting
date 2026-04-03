@@ -388,7 +388,12 @@ class Config:
 
         except Exception:
             # Fail-open by design
-            pass
+            
+            import traceback
+            print("[Config] Drive overlay failed:", e)
+            traceback.print_exc()
+
+            #pass
         
         return cfg
 
