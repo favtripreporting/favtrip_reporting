@@ -615,6 +615,7 @@ def render_run_form(cfg):
         
                 store_val = store if store else None
                 key_val = key if key else None
+                sub_val = sub_key if sub_key else None
         
                 if emails and not (store_val or key_val or sub_key):
                     rk_issues.append(f"Row {i+1}: Must include Store, Key, or both.")
@@ -623,10 +624,14 @@ def render_run_form(cfg):
                 if (store_val or key_val or sub_key) and not emails:
                     rk_issues.append(f"Row {i+1}: Missing email(s).")
                     continue
+
+                store_tag = clean_tag(store_val)
+                key_tag = clean_tag(key_val)
+                sub_tag = clean_tag(sub_val)
         
                 rk_map[(store_tag, key_tag, sub_tag)] = emails
         
-                rk_preview.append(f"{(store_val, key_val)} -> {emails}")
+                rk_preview.append(f"{(store_val, key_val, sub_val)} -> {emails}")
         
             #if rk_preview:
             #    with st.expander("Recipient mapping preview"):
