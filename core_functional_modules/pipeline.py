@@ -640,6 +640,9 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         add_or_replace_sheet(sheets_svc, calc_ss_id, 'Current Week')
         add_or_replace_sheet(sheets_svc, calc_ss_id, 'Vendor Price Book')
 
+        current_week_rows = _force_column_as_text(sales_header, sales_body_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
+
         put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
         put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
