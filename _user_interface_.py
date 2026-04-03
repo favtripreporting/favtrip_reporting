@@ -329,6 +329,7 @@ def render_run_form(cfg):
                 "Upload Sales Data",
                 type=["xlsx", "csv"],
                 key=sales_key,
+                help="Go to Modisoft -> Sales -> Live Items, Select Stores & Dates, Download as Excel"
             )
 
             if sales_file and st.session_state.sales_selected_name != sales_file.name:
@@ -340,6 +341,7 @@ def render_run_form(cfg):
                 "Upload Vendor Price Data",
                 type=["xlsx", "csv"],
                 key=vendor_key,
+                help="Go to Modisoft -> Products -> Price Book , Download as Excel"
             )
 
             if vendor_file and st.session_state.vendor_selected_name != vendor_file.name:
