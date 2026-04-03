@@ -333,7 +333,7 @@ def _fallback_recipients(hint, *candidates):
         f"(TO_RECIPIENTS, DEFAULT_ORDER_RECIPIENTS, or per-report-key)."
     )
 
-def should_run(report_key, sub_key):
+def should_run(cfg, report_key, sub_key):
     allowed = set(cfg.REPORT_KEY_RUN_LIST or [])
 
     if cfg.USE_ALL_REPORT_KEYS:
@@ -872,7 +872,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     for (store, key, sub_key), key_rows in groups.items():
 
-        if not should_run(key, sub_key):
+        if not should_run(cfg, key, sub_key):
             continue
     
         # Build CSV text in memory
