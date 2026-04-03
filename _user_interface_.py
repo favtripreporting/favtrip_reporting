@@ -292,53 +292,76 @@ def finish_web_oauth(code: str, state_b64: str, scopes):
 def render_run_form(cfg):
     err = None
     # --- STATE INIT ---
-    if "incoming_uploader_version" not in st.session_state:
-        st.session_state.incoming_uploader_version = 0
-    if "incoming_selected_name" not in st.session_state:
-        st.session_state.incoming_selected_name = None
-    if "incoming_uploaded_ok" not in st.session_state:
-        st.session_state.incoming_uploaded_ok = False
+    
+    defaults = {
+        "sales_selected_name": None,
+        "vendor_selected_name": None,
+        "sales_uploaded_ok": False,
+        "vendor_uploaded_ok": False,
+        "uploader_version": 0,
+    }
 
-    uploader_key = f"incoming_upload_v{st.session_state.incoming_uploader_version}"
+    
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    def _both_uploads_ok():
+        return (
+            st.session_state.sales_uploaded_ok
+            and st.session_state.vendor_uploaded_ok
+        )
+
 
     # =========================
     # UPLOAD CARD (outside form)
     # =========================
     
     with st.container(border=True):
-        st.subheader("Upload Live Items Report")
-        st.caption("Please upload a live items report from Modisoft. The report must either be 1 or 2 full weeks of data.")
-        # Use the SAME column grid as the run form header: [4, 1, 1]
+        st.subheader("Upload Required Input Files")
+        st.caption("Both Sales Data and Vendor Price Data are required. Sales Data must be 1 or 2 complete weeks.")
+
         up_col, _, upbtn_col = st.columns([4, 1, 1])
 
         with up_col:
-            incoming_file = st.file_uploader(
-                "Upload Current Week Sales Report",
+            sales_key = f"sales_upload_v{st.session_state.uploader_version}"
+            sales_file = st.file_uploader(
+                "Upload Sales Data",
                 type=["xlsx", "csv"],
-                key=uploader_key,
-                help="Please upload the current 'Live Items Report' from Modisoft as an XLSX or CSV file.",
-                label_visibility="collapsed",
-                accept_multiple_files=False,
+                key=sales_key,
             )
 
-        # Track selection to manage gating (must click Upload Now successfully before Run)
-        file_selected = incoming_file is not None
-        if file_selected and st.session_state.get("incoming_selected_name") != incoming_file.name:
-            st.session_state.incoming_selected_name = incoming_file.name
-            st.session_state.incoming_uploaded_ok = False
+            if sales_file and st.session_state.sales_selected_name != sales_file.name:
+                st.session_state.sales_selected_name = sales_file.name
+                st.session_state.sales_uploaded_ok = False
 
+            vendor_key = f"vendor_upload_v{st.session_state.uploader_version}"
+            vendor_file = st.file_uploader(
+                "Upload Vendor Price Data",
+                type=["xlsx", "csv"],
+                key=vendor_key,
+            )
+
+            if vendor_file and st.session_state.vendor_selected_name != vendor_file.name:
+                st.session_state.vendor_selected_name = vendor_file.name
+                st.session_state.vendor_uploaded_ok = False
+        
         with upbtn_col:
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
-            
+
             upload_clicked = st.button(
                 "⬆️ Upload Now",
-                width='stretch',
-                disabled=(not file_selected) or st.session_state.get("freeze_ui", False),
+                width="stretch",
                 type="primary",
+                disabled=(
+                    not (sales_file and vendor_file)
+                    or st.session_state.get("freeze_ui", False)
+                ),
                 key="upload_submit",
             )
 
             st.markdown('</div>', unsafe_allow_html=True)
+
 
         # --- Handle the upload action immediately ---
         if upload_clicked:
@@ -346,66 +369,93 @@ def render_run_form(cfg):
                 st.error(
                     "Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**."
                 )
-            elif incoming_file is None:
-                st.warning("Choose a .xlsx or .csv file first.")
+
+            elif sales_file is None or vendor_file is None:
+                st.warning(
+                    "Please choose BOTH a Sales Data file and a Vendor Price Data file."
+                )
+
             else:
                 try:
-                    st.warning("Uploading to Google Drive...")
+                    st.warning("Uploading files to Google Drive...")
                     drive = _get_drive_service_or_raise(cfg)
 
-                    media_mime = _infer_media_mime(incoming_file.name)
-                    base_name = os.path.splitext(incoming_file.name)[0]
-                    nice_name = f"{base_name} (uploaded via UI)"
+                    # --- Resolve user ---
+                    me = drive.about().get(
+                        fields="user(emailAddress,permissionId,displayName)"
+                    ).execute().get("user", {})
 
-                    me = drive.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
                     user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
-                    user_id_for_name = user_email
 
-                    incoming_folder = get_or_create_subfolder(
+                    # --- Per-user folder ---
+                    user_folder = get_or_create_subfolder(
                         drive,
                         cfg.INCOMING_FOLDER_ID,
-                        user_id_for_name,
+                        user_email,
                     )
 
-                    user_incoming_folder_id = incoming_folder["id"]
-
-                    created = upload_to_drive(
+                    sales_folder = get_or_create_subfolder(
                         drive,
-                        data=incoming_file.getvalue(),
-                        name=nice_name,
-                        mime=media_mime,
-                        folder_id=user_incoming_folder_id,
+                        user_folder["id"],
+                        "01 Sales Data Inputs",
+                    )
+
+                    vendor_folder = get_or_create_subfolder(
+                        drive,
+                        user_folder["id"],
+                        "02 Vendor Price Data Inputs",
+                    )
+
+                    # --- Upload SALES ---
+                    sales_created = upload_to_drive(
+                        drive,
+                        data=sales_file.getvalue(),
+                        name=f"{os.path.splitext(sales_file.name)[0]} (Sales Data via UI)",
+                        mime=_infer_media_mime(sales_file.name),
+                        folder_id=sales_folder["id"],
                         to_sheet=True,
                     )
 
-                    link = created.get("webViewLink", "")
-
-                    st.session_state.incoming_uploaded_ok = True
-                    st.session_state.incoming_uploader_version += 1
-                    st.session_state.incoming_selected_name = None
-
-                    st.success("✅ Uploaded to Incoming as a Google Sheet.")
-                    if link:
-                        st.link_button("Open uploaded Sheet", link, width="stretch")
-
-                    st.caption(
-                        "This will be treated as the latest incoming report on the next run."
+                    # --- Upload VENDOR ---
+                    vendor_created = upload_to_drive(
+                        drive,
+                        data=vendor_file.getvalue(),
+                        name=f"{os.path.splitext(vendor_file.name)[0]} (Vendor Price Data via UI)",
+                        mime=_infer_media_mime(vendor_file.name),
+                        folder_id=vendor_folder["id"],
+                        to_sheet=True,
                     )
+
+                    # --- Success state ---
+                    st.session_state.sales_uploaded_ok = True
+                    st.session_state.vendor_uploaded_ok = True
+                    st.session_state.uploader_version += 1
+                    st.session_state.sales_selected_name = None
+                    st.session_state.vendor_selected_name = None
+
+                    st.success("✅ Sales and Vendor files uploaded successfully.")
+
+                    if sales_created.get("webViewLink"):
+                        st.link_button("Open Sales Data Sheet", sales_created["webViewLink"])
+
+                    if vendor_created.get("webViewLink"):
+                        st.link_button("Open Vendor Price Data Sheet", vendor_created["webViewLink"])
+
                     _rerun()
 
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
-
     # =========================
     # RUN FORM CARD
     # =========================
     # When upload is OK, make the Run button green by adding .ft-run-green to the page segment
     
     run_form_wrapper_classes = "ft-card ft-row"
-    had_ok = st.session_state.get("incoming_uploaded_ok", False)
-    if had_ok:
-        run_form_wrapper_classes += " ft-run-green"
 
+    files_dirty = (
+        st.session_state.sales_selected_name is not None
+        or st.session_state.vendor_selected_name is not None
+    )
     
     # OPEN the wrapper with real HTML (no entities)
     st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
@@ -424,9 +474,9 @@ def render_run_form(cfg):
         # B) If no file selected and we have a prior successful upload -> enable Run
         # C) Otherwise (no prior upload or ambiguous state) -> disable Run
         file_selected = st.session_state.get("incoming_selected_name") is not None
-        had_ok = st.session_state.get("incoming_uploaded_ok", False)
+        had_ok = st.session_state.get(_both_uploads_ok(), False)
 
-        run_enabled = (had_ok and not file_selected)
+        run_enabled = (files_dirty or st.session_state.get("freeze_ui", False))
         run_disabled = not run_enabled
 
         with col_run:
@@ -435,7 +485,7 @@ def render_run_form(cfg):
             submitted = st.form_submit_button(
                 "▶️ Run Pipeline",
                 width='stretch',
-                disabled=run_disabled or st.session_state.get("freeze_ui", False),
+                disabled=run_disabled,
                 type="primary",
                 key="run_submit"
             )
@@ -912,7 +962,7 @@ def render_run_form(cfg):
                         err_text = str(err)
 
                         # Always lock out Run after a failure until a new upload occurs
-                        st.session_state.incoming_uploaded_ok = False
+                        st.session_state._both_uploads_ok() = False
 
                         # --- Special case: "Please only upload 1 or 2 full weeks of data"
                         weeks_err = "Please only upload 1 or 2 full weeks of data" in err_text
@@ -966,7 +1016,7 @@ def render_run_form(cfg):
                                     st.session_state["last_run_timestamp"] = result.timestamp
 
 
-                            st.session_state.incoming_uploaded_ok = False
+                            st.session_state._both_uploads_ok() = False
                             st.session_state.incoming_uploader_version += 1
                             st.session_state.incoming_selected_name = None
 
@@ -994,7 +1044,7 @@ def render_run_form(cfg):
             if st.button("Retry", type="secondary", width='stretch'):
                 # Unfreeze, but force a new file upload before the next run
                 st.session_state["freeze_ui"] = False
-                st.session_state["incoming_uploaded_ok"] = False
+                st.session_state[_both_uploads_ok()] = False
                 st.session_state["incoming_selected_name"] = None
                 st.session_state["incoming_uploader_version"] += 1  # resets uploader widget
                 _rerun()
@@ -1070,8 +1120,8 @@ if not st.session_state.auth_required:
 # Session state defaults
 if "incoming_selected_name" not in st.session_state:
     st.session_state.incoming_selected_name = None
-if "incoming_uploaded_ok" not in st.session_state:
-    st.session_state.incoming_uploaded_ok = False
+if _both_uploads_ok() not in st.session_state:
+    st.session_state._both_uploads_ok() = False
 if "offer_log_download" not in st.session_state:
     st.session_state.offer_log_download = False
 if "offer_log_download" not in st.session_state:
