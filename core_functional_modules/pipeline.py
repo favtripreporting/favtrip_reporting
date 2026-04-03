@@ -211,7 +211,7 @@ def _parse_sheet_date(cell: str | int | float, include_time: bool = False) -> da
 
     return None
 
-def _find_header_and_date_col(values2d):
+def _find_header_and_date_col(values2d, firstheader, col=""):
     """
     Find the header row whose first cell == 'Store', and the 'Date' column index.
     Returns (header_row_ix, date_col_ix) or (None, None).
@@ -219,7 +219,7 @@ def _find_header_and_date_col(values2d):
     header_ix = None
     for r, row in enumerate(values2d):
         c0 = (row[0].strip() if row and isinstance(row[0], str) else row[0] if row else "")
-        if str(c0).strip().lower() == "store":
+        if str(c0).strip().lower() == str(firstheader).strip().lower():
             header_ix = r
             break
     if header_ix is None:
@@ -227,7 +227,7 @@ def _find_header_and_date_col(values2d):
     headers = [str(h).strip() for h in values2d[header_ix]]
     date_col_ix = None
     for c, h in enumerate(headers):
-        if h.lower() == "date":
+        if h.lower() == str(col).strip().lower():
             date_col_ix = c
             break
     return header_ix, date_col_ix
@@ -533,16 +533,25 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
     if logger:
         logger.info("Validating incoming report (header, dates, week boundaries)…")
-    first_title, first_sid = get_first_sheet_meta(sheets_svc, new_sales_report_id)
-    values = get_values_2d(sheets_svc, new_sales_report_id, first_title, "A:Z")
+    sales_first_title, sales_first_sid = get_first_sheet_meta(sheets_svc, new_sales_report_id)
+    sales_values = get_values_2d(sheets_svc, new_sales_report_id, sales_first_title, "A:Z")
 
-    h_ix, d_cix = _find_header_and_date_col(values)
-    if h_ix is None or d_cix is None:
+    vendor_first_title, vendor_first_sid = get_first_sheet_meta(sheets_svc, new_vendor_report_id)
+    vendor_values = get_values_2d(sheets_svc, new_vendor_report_id, vendor_first_title, "A:Z")
+
+    sales_h_ix, sales_d_cix = _find_header_and_date_col(sales_values, 'Store', 'Date')
+    if sales_h_ix is None or sales_d_cix is None:
         raise IncomingDataValidationError(
-            "Unable to locate header ('Store' in A1) and/or 'Date' column in the incoming report."
+            "Unable to locate header ('Store' in A1) and/or 'Date' column in the incoming sales report."
+        )
+    
+    vendor_h_ix, vendor_d_cix = _find_header_and_date_col(vendor_values, 'Scan Code', 'Scan Code')
+    if vendor_h_ix is None:
+        raise IncomingDataValidationError(
+            "Unable to locate header ('Scan Code' in A1) in the incoming vendor price book report."
         )
 
-    unique_dates = _collect_unique_dates(values, h_ix, d_cix)
+    unique_dates = _collect_unique_dates(sales_values, sales_h_ix, sales_d_cix)
 
     if logger:
         logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
@@ -554,14 +563,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info("Preparing calculations workbook…")
 
+    # Source header & body (we already loaded 'values' from the first sheet)
+    sales_header = [str(h) for h in sales_values[sales_h_ix]]
+    sales_body_rows = sales_values[sales_h_ix + 1 :]
+
+    vendor_header = [str(h) for h in vendor_values[vendor_h_ix]]
+    vendor_body_rows = vendor_values[vendor_h_ix + 1 :]
+    
     if plan_kind == "two":
         # Two weeks → build values in memory and write each in a single call
         if logger:
             logger.info("Detected 2 weeks; writing 'Last Week' (oldest 7) and 'Current Week' (newest 7) without row deletions")
-
-        # Source header & body (we already loaded 'values' from the first sheet)
-        header = [str(h) for h in values[h_ix]]
-        body_rows = values[h_ix + 1 :]
 
         def _slice_rows(rows, date_cix, keep_dates: set):
             out = []
@@ -572,32 +584,32 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             return out
 
         keep_oldest7, keep_newest7 = plan_payload  # sets of dates from _plan_weeks
-        last_week_rows = _slice_rows(body_rows, d_cix, keep_oldest7)
-        current_week_rows = _slice_rows(body_rows, d_cix, keep_newest7)
+        last_week_rows = _slice_rows(sales_body_rows, sales_d_cix, keep_oldest7)
+        current_week_rows = _slice_rows(sales_body_rows, sales_d_cix, keep_newest7)
 
         # Create fresh target sheets
-        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
-        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Last Week")
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
 
         # Force column 'Scan Code' to be text with a prefixed apostrophe
-        last_week_rows = _force_column_as_text(header, last_week_rows, "Scan Code")
-        current_week_rows = _force_column_as_text(header, current_week_rows, "Scan Code")
+        last_week_rows = _force_column_as_text(sales_header, last_week_rows, "Scan Code")
+        current_week_rows = _force_column_as_text(sales_header, current_week_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
 
         # Bulk write (header + rows) → 1 write per sheet
-        put_values_2d(sheets_svc, calc_ss_id, "Last Week", [header] + last_week_rows)
-        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Last Week", [sales_header] + last_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
     elif plan_kind == "one" and cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK:
         # One week + rollover ON → current behavior
         if logger:
             logger.info("Detected 1 week; auto-rollover enabled → copying old Current→Last and inserting new Current")
-        
-        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
-        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
 
         delete_sheet(sheets_svc, calc_ss_id, "Last Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
+
         try:
             copy_sheet_as(sheets_svc, calc_ss_id, "Current Week", "Last Week")
             if logger:
@@ -605,29 +617,35 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         except Exception:
             if logger:
                 logger.warn("No 'Current Week' sheet exists to copy")
-        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
-        copy_first_sheet_as(sheets_svc, new_sales_report_id, calc_ss_id, "Current Week")
+        
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
+
+        current_week_rows = _force_column_as_text(sales_header, sales_body_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
+
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
         # Trim header for Current Week
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, sales_values, sales_h_ix)
 
     else:
         # One week + rollover OFF → Current Week only; Last Week blank
         if logger:
             logger.info("Detected 1 week; auto-rollover disabled → Current only, Last Week blank")
         
-        delete_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
-        copy_first_sheet_as(sheets_svc, new_vendor_report_id, calc_ss_id, "Vendor Price Book")
-        delete_sheet(sheets_svc, calc_ss_id, "Last Week")
-        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
-        add_blank_sheet(sheets_svc, calc_ss_id, "Last Week")
-        copy_first_sheet_as(sheets_svc, new_sales_report_id, calc_ss_id, "Current Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Last Week')
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Current Week')
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Vendor Price Book')
+
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, sales_values, sales_h_ix)
 
     # Refresh reference sheets (unchanged)
     if logger:
