@@ -370,11 +370,17 @@ class Config:
             if creds:
                 _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
 
-                overrides = load_config_from_drive(
-                    drive,
-                    active_config_file_id
-                )
+                overrides = {}
+                
+                # 1️⃣ Try DEV config first (if enabled)
+                if DEV_ENVIRONMENT and DEV_CONFIG_FILE_ID:
+                    overrides = load_config_from_drive(drive, DEV_CONFIG_FILE_ID)
 
+                # 2️⃣ Fallback to PROD config if DEV missing/empty
+                if not overrides and CONFIG_FILE_ID:
+                    overrides = load_config_from_drive(drive, CONFIG_FILE_ID)
+
+                # 3️⃣ Apply overrides if any
                 if isinstance(overrides, dict):
                     for k, v in overrides.items():
                         if hasattr(cfg, k):
