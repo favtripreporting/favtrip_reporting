@@ -346,31 +346,44 @@ class Config:
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
 
-            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"))
+            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111")),
         )
 
         # Optional overlay from Drive JSON config (if creds + file present)
+        # ---------------- Drive-backed config overlay ----------------
         try:
             import streamlit as st
             from core_functional_modules.google_client import load_valid_token, services
             from core_functional_modules.config_store import load_config_from_drive
 
-            if hasattr(st, "secrets"):
-                CONFIG_FILE_ID = st.secrets.get("CONFIG_FILE_ID")
+            DEV_ENVIRONMENT = _get_bool_secret("DEV_ENVIRONMENT", False)
+            DEV_CONFIG_FILE_ID = str(_get_secret("DEV_CONFIG_FILE_ID", "") or "").strip()
+            CONFIG_FILE_ID = str(_get_secret("CONFIG_FILE_ID", "") or "").strip()
+
+            # Select which config file ID to READ from
+            if DEV_ENVIRONMENT and DEV_CONFIG_FILE_ID:
+                active_config_file_id = DEV_CONFIG_FILE_ID
+            else:
+                active_config_file_id = CONFIG_FILE_ID or None
 
             creds = load_valid_token(cfg.SCOPES)
             if creds:
                 _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-                overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)  # {} if not found
-                if isinstance(overrides, dict) and overrides:
+
+                overrides = load_config_from_drive(
+                    drive,
+                    active_config_file_id
+                )
+
+                if isinstance(overrides, dict):
                     for k, v in overrides.items():
                         if hasattr(cfg, k):
                             setattr(cfg, k, v)
-        except Exception as e:
-            # Fail-open: if Drive/token not ready yet, just return base cfg
-            st.error(f"Drive config load failed: {e}")
 
-        return cfg
+        except Exception:
+            # Fail-open by design
+            pass
+
 
     # -------------------------------------------------------------------------
     # .env serialization (optional helper)

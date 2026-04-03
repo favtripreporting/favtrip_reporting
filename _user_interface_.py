@@ -906,24 +906,35 @@ def render_run_form(cfg):
                             "VENDOR_PRICE_BOOK_LINK" : cfg.VENDOR_PRICE_BOOK_LINK
                         }
 
-                        # If you have CONFIG_FILE_ID in Secrets, we update that exact file.
-                        # Otherwise we'll upsert a file named 'favtrip_config.json' and return its id.
+                        DEV_ENVIRONMENT = st.secrets.get("DEV_ENVIRONMENT", False)
+                        DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
                         CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+
+                        # Decide where to SAVE
+                        if DEV_ENVIRONMENT:
+                            save_target_id = DEV_CONFIG_FILE_ID or None
+                        else:
+                            save_target_id = CONFIG_FILE_ID or None
+
                         new_id = save_config_to_drive(
                             drive,
                             drive_defaults,
-                            file_id=CONFIG_FILE_ID or None,   # update/pin if set, else upsert by name
-                            # parent_folder_id=None,          # optional: set a folder id to create under
+                            file_id=save_target_id
                         )
 
-                        st.success(f"Saved defaults to Drive config (file id: {new_id}).")
-                        if not CONFIG_FILE_ID:
+                        # DEV auto-bootstrap case
+                        if DEV_ENVIRONMENT and not DEV_CONFIG_FILE_ID:
+                            st.success("✅ Created new DEV config file.")
                             st.info(
-                                "Tip: add this ID to Streamlit Secrets as `CONFIG_FILE_ID` to pin the same file for all runs:\n"
+                                "Add this to Streamlit secrets as DEV_CONFIG_FILE_ID:\n\n"
                                 f"`{new_id}`"
                             )
+                        else:
+                            st.success(f"✅ Defaults saved (file id: {new_id})")
+
                 except Exception as e:
                     st.error(f"Failed to save defaults to Drive: {e}")
+
 
             # If user checked "Force Google re-auth for this run", kick them into auth gating first.
             if cfg.FORCE_REAUTH:
