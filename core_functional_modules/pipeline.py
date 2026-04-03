@@ -937,14 +937,18 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.TO_RECIPIENTS,
             cfg.DEFAULT_ORDER_RECIPIENTS
         )
-    
+
+        email_tag_parts = [tag, sub_tag]
+        email_tag = '_'.join(email_tag_parts)
+
+
         email_order_report(
             gmail_svc=gmail_svc,
             sender="me",
             to_list=recipients,
             cc_list=cfg.CC_RECIPIENTS,
             key=key,
-            tag=name_parts,
+            tag=email_tag_parts,
             ts=ts,
             location=store,
             pdf_name=pdfname,
