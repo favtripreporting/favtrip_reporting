@@ -797,7 +797,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         to_err = sorted(set(to_err) | set(err_cc_list))
 
 
-        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=None, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=None, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link)
         if logger:
             logger.info("Error report email sent")
         
@@ -940,7 +940,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             to_list=recipients,
             cc_list=cfg.CC_RECIPIENTS,
             key=key,
-            tag=tag,
+            tag=name_parts,
             ts=ts,
             location=store,
             pdf_name=pdfname,
@@ -984,7 +984,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             sender="me",
             to_list=to_full,
             cc_list=cfg.CC_RECIPIENTS,
-            key='',  # or a specific key if your function requires it
+            key='', # or a specific key if your function requires it
             tag="FULL",
             ts=ts,
             location=location,

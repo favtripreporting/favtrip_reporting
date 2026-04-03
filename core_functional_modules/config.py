@@ -281,7 +281,7 @@ class Config:
     USER_TIME_TO_LIFE: int = 90
 
     #Other
-    VENDOR_PRICE_BOOK_LINK: str = "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"
+    BEV_MAPPING_LINK: str = "https://docs.google.com/spreadsheets/d/1O6MtF-GM0VayqMr_v3oJC5PnRK5yv6biiDtA_qw-Z3g/"
 
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
@@ -346,7 +346,7 @@ class Config:
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
 
-            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111")),
+            BEV_MAPPING_LINK=str(_get_secret("BEV_MAPPING_LINK", "https://docs.google.com/spreadsheets/d/1O6MtF-GM0VayqMr_v3oJC5PnRK5yv6biiDtA_qw-Z3g/")),
         )
 
         normalized = {}

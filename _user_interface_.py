@@ -673,8 +673,8 @@ def render_run_form(cfg):
                     calc_id = st.text_input("Master Calculations Spreadsheet ID", value=cfg.CALC_SPREADSHEET_ID,
                         help="The file ID of the Master Calculations google sheets file that user workhorse files should be based off of.")
                 with gb2:
-                    vendor_price_book_link = st.text_input("Vendor Price Book Link", value=cfg.VENDOR_PRICE_BOOK_LINK,
-                        help="The url to the live, editable Vendor Price Book google sheets file.")
+                    BEV_MAPPING_LINK = st.text_input("BEV Mapping Link", value=cfg.BEV_MAPPING_LINK,
+                        help="The url to the live, editable BEV Sub-Key Mapping google sheets file.")
             
             with tab3:
                 gc1, gc2 = st.columns([1, 1])
@@ -803,7 +803,7 @@ def render_run_form(cfg):
             cfg.START_DAY_OF_WEEK = start_dow
             cfg.END_DAY_OF_WEEK = end_dow
 
-            cfg.VENDOR_PRICE_BOOK_LINK = vendor_price_book_link
+            cfg.BEV_MAPPING_LINK = BEV_MAPPING_LINK
 
 
             # Per-key recipients from editor
@@ -913,7 +913,7 @@ def render_run_form(cfg):
                             "START_DAY_OF_WEEK" : cfg.START_DAY_OF_WEEK,
                             "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK,
 
-                            "VENDOR_PRICE_BOOK_LINK" : cfg.VENDOR_PRICE_BOOK_LINK
+                            "BEV_MAPPING_LINK" : cfg.BEV_MAPPING_LINK
                         }
 
                         DEV_ENVIRONMENT = st.secrets.get("DEV_ENVIRONMENT", False)
@@ -1187,7 +1187,7 @@ with st.sidebar:
 
     st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", width='stretch')
 
-    st.link_button("Open Vendor Price Book", cfg.VENDOR_PRICE_BOOK_LINK, width='stretch')
+    st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
 
     st.checkbox(
         "Offer full log download",

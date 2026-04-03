@@ -181,6 +181,7 @@ def email_order_report(
     to_list,
     cc_list,
     key: str,
+    sub_key: str,
     tag: str,
     ts: str,
     location: str,
@@ -201,7 +202,7 @@ def email_order_report(
         msg["Cc"] = ", ".join(cc_list)
 
     msg.set_content(
-        f"Hi {key} team,\n"
+        f"Hi {tag} team,\n"
         f"Your order report for {location} - {tag} is ready.\n"
         f"Google Sheet: {sheet_link}\n"
         f"Attached: {pdf_name}\n"
@@ -210,7 +211,7 @@ def email_order_report(
 
     msg.add_alternative(
         f"""
-        <p>Hi {key} team,</p>
+        <p>Hi {tag} team,</p>
         <p>Your order report for store <b>{location}</b> is ready.</p>
         <p><a href="{sheet_link}">Open Google Sheet</a></p>
         <p>Attached: {pdf_name}</p>
@@ -245,8 +246,7 @@ def email_error_report(
     ts: str,
     pdf_name: str,
     pdf_bytes: bytes,
-    sheet_link: str,
-    vendor_price_book_link: str
+    sheet_link: str
     ):
     msg = EmailMessage()
 
@@ -263,7 +263,6 @@ def email_error_report(
         f"The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.\n"
         f"Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.\n\n"
         f"Google Sheet: {sheet_link}\n"
-        f"Vendor Price Book: {vendor_price_book_link}"
         f"Attached: {pdf_name}\n"
         "—Automated"
     )
@@ -276,7 +275,6 @@ def email_error_report(
         <p>Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.</p>
         <p></p>
         <p><a href="{sheet_link}">Open Error Report in Google Sheets</a></p>
-        <p><a href="{vendor_price_book_link}">Edit Vendor Price Book in Google Sheets</a></p>
         <p>Attached: {pdf_name}</p>
         <p>—Automated</p>
         """,
