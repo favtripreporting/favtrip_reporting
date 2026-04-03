@@ -356,7 +356,7 @@ class Config:
             from core_functional_modules.google_client import load_valid_token, services
             from core_functional_modules.config_store import load_config_from_drive
 
-            DEV_ENVIRONMENT = _get_bool_secret("DEV_ENVIRONMENT", False)
+            DEV_ENVIRONMENT = _coerce_bool(_get_secret("DEV_ENVIRONMENT", False))
             DEV_CONFIG_FILE_ID = str(_get_secret("DEV_CONFIG_FILE_ID", "") or "").strip()
             CONFIG_FILE_ID = str(_get_secret("CONFIG_FILE_ID", "") or "").strip()
 
