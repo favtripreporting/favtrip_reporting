@@ -1031,7 +1031,7 @@ def render_running_status(cfg):
         try:
             status, payload = PIPELINE_QUEUE.get_nowait()
         except queue.Empty:
-            return  # still running
+            pass  # still running
 
         if status == "success":
             st.session_state.pipeline_result = payload
