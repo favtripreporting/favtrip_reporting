@@ -1238,7 +1238,6 @@ def render_start(cfg):
         "offer_log_download": False,
         "uploader_version": 0,
         "ui_phase": UI_UPLOAD,
-        "auth_required": True,
     }
 
         
