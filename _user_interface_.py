@@ -1214,7 +1214,7 @@ def render_start(cfg):
             # Token is saved locally in this new tab's app process
             st.success("✅ Google authentication complete.")
             
-            has_token = (load_valid_token(cfg.SCOPES) is None)
+            has_token = (load_valid_token(cfg.SCOPES) is not None)
             st.session_state.auth_required = not has_token
 
             # Remove code/state from URL
@@ -1226,28 +1226,6 @@ def render_start(cfg):
             _rerun()
         except Exception as e:
             st.error(f"OAuth error: {e}")
-
-    # If a valid token now exists (in this tab), reload cfg (Drive overlays, etc.)
-    st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
-    if not st.session_state.auth_required:
-        cfg = Config.load()
-
-    # Session state defaults
-    defaults = {
-        "sales_selected_name": None,
-        "vendor_selected_name": None,
-        "sales_uploaded_ok": False,
-        "vendor_uploaded_ok": False,
-        "offer_log_download": False,
-        "uploader_version": 0,
-        "ui_phase": UI_UPLOAD,
-    }
-
-        
-    for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-
     
     if "sidebar_hint_seen" not in st.session_state:
         st.info(
@@ -1354,7 +1332,8 @@ for key, default in defaults.items():
 
 cfg = Config.load()
 
-
+creds = load_valid_token(cfg.SCOPES)
+st.session_state.auth_required = creds is None
 
 # Auth gate
 if st.session_state.auth_required:
