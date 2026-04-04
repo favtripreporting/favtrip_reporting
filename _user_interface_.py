@@ -1062,7 +1062,7 @@ def render_running_status(cfg):
                     st.session_state.ui_phase = UI_RESULT
                 else:
                     st.session_state.run_error = "Pipeline finished but produced no result."
-                    st.session
+                    st.session_state.ui_phase = UI_RESULT_ERROR
 
             _rerun()
 
