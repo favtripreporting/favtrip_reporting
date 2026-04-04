@@ -1030,7 +1030,7 @@ def render_running_status(cfg):
         try:
             status, payload = st.session_state.pipeline_queue.get_nowait()
         except queue.Empty:
-            status = None 
+            status = 'Still Running' 
             payload = None # still running
 
         if status == "success":
@@ -1039,7 +1039,7 @@ def render_running_status(cfg):
             st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
             _rerun()
-        else:
+        elif status is not 'Still Running':
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
             st.session_state.pipeline_done = True
