@@ -1068,7 +1068,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                         pdf_name=pdf_name,
                         pdf_bytes=pdf_bytes,
                         sheet_link=sheet_link,
-                        mapping_link=cfg.BEVERAGE_MAPPING_FILE_LINK,
+                        mapping_link=cfg.BEV_MAPPING_LINK,
                     )
 
                     if logger:
