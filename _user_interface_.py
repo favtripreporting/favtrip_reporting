@@ -1106,7 +1106,7 @@ st.set_page_config(
     page_title="FT Reporting",
     page_icon="🧾",          # emoji or path/URL to an image
     layout="wide",           # "centered" or "wide"
-    initial_sidebar_state="expanded",  # "auto", "expanded", "collapsed"
+    initial_sidebar_state="collapsed",  # "auto", "expanded", "collapsed"
     menu_items={
         "Get Help": "mailto:ryan-morrow@uiowa.edu",
         "Report a bug": "https://github.com/ryan-j-morrow/favtrip_reporting/issues",
@@ -1114,24 +1114,14 @@ st.set_page_config(
     },
 )
 
-
-st.markdown("""
-<style>
-/* Make only buttons inside a .ft-run-green scope look green */
-.ft-run-green .stButton > button {
-    background-color: #22c55e !important;  /* green */
-    border-color: #16a34a !important;
-    color: #ffffff !important;
-}
-/* Optional: dim disabled state a bit */
-.ft-run-green .stButton > button:disabled {
-    opacity: .6 !important;
-    cursor: not-allowed !important;
-}
-/* Utility: right-align containers where used */
-.ft-right-btn { display:flex; justify-content:flex-end; }
-</style>
-""", unsafe_allow_html=True)
+if "sidebar_hint_seen" not in st.session_state:
+    st.info(
+        "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
+        icon="👈",
+    )
+    if st.button("Got it"):
+        st.session_state["sidebar_hint_seen"] = True
+        st.rerun()
 
 
 cfg = Config.load()
@@ -1175,32 +1165,109 @@ for key, default in defaults.items():
         st.session_state[key] = default
 
 
-# Sidebar (always visible)
+# Sidebar
 with st.sidebar:
     st.header("Utilities")
 
+    # --- Existing buttons ---
     if st.button("Google Sign Out", type="secondary", width='stretch'):
         clear_token()
         for key in ["auth_required", "oauth_flow", "oauth_url", "auth_checked"]:
             if key in st.session_state:
                 del st.session_state[key]
-        try:
-            st.rerun()
-        except AttributeError:
-            st.experimental_rerun()
-    
+        st.rerun()
+
     st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", width='stretch')
-
-    st.link_button("Open Google Drive", f"https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
-
-    st.link_button("Open Modisoft", f"https://insights.modisoft.com/account/logon", width='stretch')
-
+    st.link_button("Open Google Drive", "https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
+    st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
     st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
 
     st.checkbox(
         "Offer full log download",
         key="offer_log_download",
-        help="If enabled, a 'Download last_run.log' button appears when a run finishes.")
+        help="If enabled, a 'Download last_run.log' button appears when a run finishes."
+    )
+
+    # =============================================================
+    # DEV-ONLY: Push DEV Defaults → PROD Defaults
+    # =============================================================
+    DEV_ENVIRONMENT = bool(st.secrets.get("DEV_ENVIRONMENT", False))
+
+    if DEV_ENVIRONMENT:
+        st.divider()
+        st.subheader("DEV Tools")
+
+        if st.button(
+            "🚀 Push Dev Defaults to Prod",
+            type="primary",
+            width="stretch",
+            help="Overwrite the PROD defaults JSON with the current DEV defaults",
+        ):
+            st.session_state["confirm_push_dev_to_prod"] = True
+
+
+    @st.dialog("⚠️ Confirm Push to Production")
+    def confirm_push_dev_to_prod():
+        st.markdown(
+            """
+            **You are about to overwrite the PROD defaults configuration.**
+
+            - ✅ PROD file ID will remain unchanged  
+            - ✅ DEV defaults will completely replace PROD defaults  
+            - ❌ This action **cannot be undone**
+
+            Please confirm you want to continue.
+            """
+        )
+
+        col_confirm, col_cancel = st.columns(2)
+
+        with col_confirm:
+            if st.button("✅ Yes — Push to PROD", type="primary", width="stretch"):
+                try:
+                    DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
+                    PROD_CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+
+                    if not DEV_CONFIG_FILE_ID or not PROD_CONFIG_FILE_ID:
+                        st.error("Missing DEV_CONFIG_FILE_ID or CONFIG_FILE_ID in secrets.")
+                    else:
+                        creds = load_valid_token(cfg.SCOPES)
+                        if not creds:
+                            st.error("Google authentication required.")
+                        else:
+                            _, drive, _ = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+
+                            # Load DEV defaults
+                            dev_blob = drive.files().get_media(
+                                fileId=DEV_CONFIG_FILE_ID
+                            ).execute()
+                            dev_defaults = json.loads(dev_blob.decode("utf-8"))
+
+                            # Overwrite PROD defaults (same file ID)
+                            save_config_to_drive(
+                                drive,
+                                dev_defaults,
+                                file_id=PROD_CONFIG_FILE_ID
+                            )
+
+                            st.success("✅ DEV defaults successfully pushed to PROD.")
+
+                except Exception as e:
+                    st.error(f"Push failed: {e}")
+
+                finally:
+                    st.session_state.pop("confirm_push_dev_to_prod", None)
+                    st.rerun()
+
+        with col_cancel:
+            if st.button("❌ Cancel", width="stretch"):
+                st.session_state.pop("confirm_push_dev_to_prod", None)
+                st.rerun()
+
+
+    # Trigger dialog
+    if st.session_state.get("confirm_push_dev_to_prod"):
+        confirm_push_dev_to_prod()
 
 # Auth gate
 if st.session_state.auth_required:
