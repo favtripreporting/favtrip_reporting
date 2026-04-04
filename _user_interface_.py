@@ -1036,13 +1036,17 @@ def render_running_status(cfg):
         if status == "success":
             st.session_state.pipeline_result = payload
             st.session_state.ui_phase = UI_RESULT
+            st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
+            _rerun()
         else:
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
+            st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
+            _rerun()
 
-        st.rerun()
+        _rerun()
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
