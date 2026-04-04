@@ -79,6 +79,7 @@ import base64
 import hashlib
 import secrets
 import re
+import queue
 
 import streamlit as st
 from streamlit.components.v1 import html
@@ -100,6 +101,18 @@ from core_functional_modules.drive_utils import upload_to_drive, get_or_create_s
 # =========================
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+err = None
+
+PIPELINE_QUEUE = queue.Queue()
+
+UI_UPLOAD  = "UPLOAD"
+UI_READY   = "READY"
+UI_RUNNING = "RUNNING"
+UI_RESULT = "RESULT"
+UI_RESULT_ERROR = "RESULT_ERROR"     # run_pipeline failed
+UI_UPLOAD_ERROR = "UPLOAD_ERROR"     # invalid input (1–2 weeks)
+
 
 
 def _split_emails(csv_str: str):
@@ -219,6 +232,30 @@ def _rerun():
     except AttributeError:
         st.experimental_rerun()
 
+def reset_to_upload():
+    st.session_state.sales_uploaded_ok = False
+    st.session_state.vendor_uploaded_ok = False
+    st.session_state.uploader_version += 1
+    st.session_state.ui_phase = UI_UPLOAD
+
+def init_thread_state():
+    if "pipeline_thread_started" not in st.session_state:
+        st.session_state.pipeline_thread_started = False
+
+    if "pipeline_done" not in st.session_state:
+        st.session_state.pipeline_done = False
+
+    if "pipeline_error" not in st.session_state:
+        st.session_state.pipeline_error = None
+
+    if "pipeline_result" not in st.session_state:
+        st.session_state.pipeline_result = None
+
+def reset_pipeline_state():
+    st.session_state.pipeline_thread_started = False
+    st.session_state.pipeline_done = False
+    st.session_state.pipeline_error = None
+
 
 # =========================
 # OAuth (Web / PKCE)
@@ -295,34 +332,7 @@ def clean_tag(s: str) -> str:
 # UI Sections
 # =========================
 
-def render_run_form(cfg):
-    err = None
-    # --- STATE INIT ---
-    
-    defaults = {
-        "sales_selected_name": None,
-        "vendor_selected_name": None,
-        "sales_uploaded_ok": False,
-        "vendor_uploaded_ok": False,
-        "uploader_version": 0,
-    }
-
-    
-    for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-
-    def _both_uploads_ok():
-        return (
-            st.session_state.sales_uploaded_ok
-            and st.session_state.vendor_uploaded_ok
-        )
-
-
-    # =========================
-    # UPLOAD CARD (outside form)
-    # =========================
-    
+def render_upload_card(cfg):
     with st.container(border=True):
         st.subheader("Upload Required Input Files")
         st.caption("Both Sales Data and Vendor Price Data are required. Sales Data must be 1 or 2 complete weeks.")
@@ -361,10 +371,7 @@ def render_run_form(cfg):
                 "⬆️ Upload Now",
                 width="stretch",
                 type="primary",
-                disabled=(
-                    not (sales_file and vendor_file)
-                    or st.session_state.get("freeze_ui", False)
-                ),
+                disabled=False,
                 key="upload_submit",
             )
 
@@ -374,90 +381,76 @@ def render_run_form(cfg):
         # --- Handle the upload action immediately ---
         if upload_clicked:
             if not cfg.INCOMING_FOLDER_ID:
-                st.error(
-                    "Incoming Folder ID is empty. Set it under **Advanced → Incoming Folder ID**."
+                st.session_state.upload_error = "Incoming Folder ID is empty."
+                st.session_state.ui_phase = UI_UPLOAD_ERROR
+                _rerun()
+
+            if sales_file is None or vendor_file is None:
+                st.session_state.upload_error = (
+                    "Both Sales Data and Vendor Price Data are required."
+                )
+                st.session_state.ui_phase = UI_UPLOAD_ERROR
+                _rerun()
+
+            try:
+                drive = _get_drive_service_or_raise(cfg)
+                
+
+                # --- Resolve user ---
+                me = drive.about().get(
+                    fields="user(emailAddress,permissionId,displayName)"
+                ).execute().get("user", {})
+
+                user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+
+                # --- Per-user folder ---
+                user_folder = get_or_create_subfolder(
+                    drive,
+                    cfg.INCOMING_FOLDER_ID,
+                    user_email,
                 )
 
-            elif sales_file is None or vendor_file is None:
-                st.warning(
-                    "Please choose BOTH a Sales Data file and a Vendor Price Data file."
+                sales_folder = get_or_create_subfolder(
+                    drive,
+                    user_folder["id"],
+                    "01 Sales Data Inputs",
                 )
 
-            else:
-                try:
-                    st.warning("Uploading files to Google Drive...")
-                    drive = _get_drive_service_or_raise(cfg)
+                vendor_folder = get_or_create_subfolder(
+                    drive,
+                    user_folder["id"],
+                    "02 Vendor Price Data Inputs",
+                )
 
-                    # --- Resolve user ---
-                    me = drive.about().get(
-                        fields="user(emailAddress,permissionId,displayName)"
-                    ).execute().get("user", {})
+                # --- Upload SALES ---
+                sales_created = upload_to_drive(
+                    drive,
+                    data=sales_file.getvalue(),
+                    name=f"{os.path.splitext(sales_file.name)[0]} (Sales Data via UI)",
+                    mime=_infer_media_mime(sales_file.name),
+                    folder_id=sales_folder["id"],
+                    to_sheet=True,
+                )
 
-                    user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
+                # --- Upload VENDOR ---
+                vendor_created = upload_to_drive(
+                    drive,
+                    data=vendor_file.getvalue(),
+                    name=f"{os.path.splitext(vendor_file.name)[0]} (Vendor Price Data via UI)",
+                    mime=_infer_media_mime(vendor_file.name),
+                    folder_id=vendor_folder["id"],
+                    to_sheet=True,
+                )
 
-                    # --- Per-user folder ---
-                    user_folder = get_or_create_subfolder(
-                        drive,
-                        cfg.INCOMING_FOLDER_ID,
-                        user_email,
-                    )
+                st.session_state.ui_phase = UI_READY
+                _rerun()
 
-                    sales_folder = get_or_create_subfolder(
-                        drive,
-                        user_folder["id"],
-                        "01 Sales Data Inputs",
-                    )
-
-                    vendor_folder = get_or_create_subfolder(
-                        drive,
-                        user_folder["id"],
-                        "02 Vendor Price Data Inputs",
-                    )
-
-                    # --- Upload SALES ---
-                    sales_created = upload_to_drive(
-                        drive,
-                        data=sales_file.getvalue(),
-                        name=f"{os.path.splitext(sales_file.name)[0]} (Sales Data via UI)",
-                        mime=_infer_media_mime(sales_file.name),
-                        folder_id=sales_folder["id"],
-                        to_sheet=True,
-                    )
-
-                    # --- Upload VENDOR ---
-                    vendor_created = upload_to_drive(
-                        drive,
-                        data=vendor_file.getvalue(),
-                        name=f"{os.path.splitext(vendor_file.name)[0]} (Vendor Price Data via UI)",
-                        mime=_infer_media_mime(vendor_file.name),
-                        folder_id=vendor_folder["id"],
-                        to_sheet=True,
-                    )
-
-                    # --- Success state ---
-                    st.session_state.sales_uploaded_ok = True
-                    st.session_state.vendor_uploaded_ok = True
-                    st.session_state.uploader_version += 1
-                    st.session_state.sales_selected_name = None
-                    st.session_state.vendor_selected_name = None
-
-                    st.success("✅ Sales and Vendor files uploaded successfully.")
-
-                    if sales_created.get("webViewLink"):
-                        st.link_button("Open Sales Data Sheet", sales_created["webViewLink"])
-
-                    if vendor_created.get("webViewLink"):
-                        st.link_button("Open Vendor Price Data Sheet", vendor_created["webViewLink"])
-
-                    _rerun()
-
-                except Exception as e:
-                    st.error(f"Upload failed: {e}")
-    # =========================
-    # RUN FORM CARD
-    # =========================
-    # When upload is OK, make the Run button green by adding .ft-run-green to the page segment
+            except Exception as e:
+                st.session_state.upload_error = f"Upload failed: {e}"
+                st.session_state.ui_phase = UI_UPLOAD_ERROR
+                _rerun()
     
+def render_run_options(cfg):
     run_form_wrapper_classes = "ft-card ft-row"
 
     # A file is "dirty" if the user has selected something not yet uploaded
@@ -467,7 +460,7 @@ def render_run_form(cfg):
     )
 
     # Have we successfully uploaded both files?
-    had_ok = (
+    """had_ok = (
         st.session_state.sales_uploaded_ok
         and st.session_state.vendor_uploaded_ok
     )
@@ -476,11 +469,12 @@ def render_run_form(cfg):
     run_enabled = (
         had_ok
         and not files_dirty
-        and not st.session_state.get("freeze_ui", False)
     )
 
     run_disabled = not run_enabled
     
+    """
+
     # OPEN the wrapper with real HTML (no entities)
     st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
 
@@ -504,7 +498,7 @@ def render_run_form(cfg):
             submitted = st.form_submit_button(
                 "▶️ Run Pipeline",
                 width='stretch',
-                disabled=run_disabled,
+                disabled=False,
                 type="primary",
                 key="run_submit"
             )
@@ -588,7 +582,7 @@ def render_run_form(cfg):
             rows = []
         
             if cfg.REPORT_KEY_RECIPIENTS:
-                for (store, key), emails in cfg.REPORT_KEY_RECIPIENTS.items():
+                for (store, key, sub_key), emails in cfg.REPORT_KEY_RECIPIENTS.items():
                     rows.append({
                         "Store (optional)": store or "",
                         "Report Key (optional)": key or "",
@@ -647,8 +641,8 @@ def render_run_form(cfg):
             #    with st.expander("Recipient mapping preview"):
             #        st.code("\n".join(rk_preview), language="text")
         
-            if rk_issues:
-                st.warning("Recipient configuration issues:\n\n- " + "\n- ".join(rk_issues))
+            #if rk_issues:
+            #    st.warning("Recipient configuration issues:\n\n- " + "\n- ".join(rk_issues))
 
         # Advanced
         with st.expander("Advanced", expanded=False):
@@ -769,8 +763,6 @@ def render_run_form(cfg):
         save_drive_defaults = st.checkbox("Update defaults", value=False)
 
         # ----- Submission handling -----
-        def _split_emails(csv_str: str):
-            return [e.strip() for e in (csv_str or "").split(",") if e.strip()]
 
         if submitted:
             # Apply per-run config
@@ -821,6 +813,7 @@ def render_run_form(cfg):
             for r in edited_rows:
                 store = (r.get("Store (optional)") or "").strip().upper() or None
                 key   = (r.get("Report Key (optional)") or "").strip().upper() or None
+                sub_key   = (r.get("Sub-Report Key (optional)") or "").strip().upper() or None
             
                 emails_raw = (r.get("Emails (comma)") or "").strip()
                 emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
@@ -836,33 +829,47 @@ def render_run_form(cfg):
             cfg.REPORT_KEY_RECIPIENTS = rk_map
 
             # --- ADD: warnings before kicking off the run ---
-            # 1) Warn if use_all is OFF and no explicit keys provided
-            requested_keys = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
-            if not use_all and not requested_keys:
-                st.warning(
-                    "You left **Use all Report Keys** OFF but provided **no keys** to run. "
-                    "No per‑key outputs will be generated unless you add keys.",
-                    icon="⚠️"
+            if not cfg.USE_ALL_REPORT_KEYS and not cfg.REPORT_KEY_RUN_LIST:
+                st.session_state.upload_error = (
+                    "No report keys selected. Either enable 'Use all keys' "
+                    "or provide explicit report keys."
                 )
+                st.session_state.ui_phase = UI_UPLOAD_ERROR
+                _rerun()
 
-            # 2) Warn if no recipients anywhere (TO, DEFAULT_ORDER, or per‑key map)
-            any_to = bool(_parse_emails(to) or (cfg.TO_RECIPIENTS or []))
-            any_default = bool(cfg.DEFAULT_ORDER_RECIPIENTS or [])
-            any_per_key = bool(cfg.REPORT_KEY_RECIPIENTS)
-            if not (any_to or any_default or any_per_key):
-                st.warning(
-                    "No recipients are defined: **TO**, **DEFAULT_ORDER_RECIPIENTS**, and **Per‑Report‑Key** are all empty. "
-                    "Emails will not be sent.",
-                    icon="⚠️"
+            if not cfg.TO_RECIPIENTS and not cfg.DEFAULT_TO_RECIPIENTS and not rk_map:
+                st.session_state.run_error = (
+                    "No email recipients defined. At least one recipient is required."
                 )
+                st.session_state.ui_phase = UI_RESULT_ERROR
+                _rerun()
 
-            # 3) Surface per-key table issues detected earlier
             if rk_issues:
-                st.warning(
-                    "Per‑report‑key recipient issues detected above. These may prevent emails from sending correctly:\n\n- "
-                    + "\n- ".join(rk_issues),
-                    icon="⚠️"
+                st.session_state.run_error = (
+                    "Invalid per‑report‑key recipient configuration:\n\n"
+                    + "\n".join(rk_issues)
                 )
+                st.session_state.ui_phase = UI_RESULT_ERROR
+                _rerun()
+
+            # All validation must already be done
+            st.session_state._run_start_time = None
+            st.session_state.ui_phase = UI_RUNNING
+
+            # Start pipeline in background (one time)
+            if not st.session_state.pipeline_thread_started:
+                st.session_state.pipeline_thread_started = True
+                st.session_state.pipeline_done = False
+                st.session_state.pipeline_error = None
+                st.session_state.pipeline_result = None
+
+                threading.Thread(
+                    target=run_pipeline_controller,
+                    args=(cfg,),
+                    daemon=True
+                ).start()
+
+            _rerun()
             # --- END ADD ---
 
 
@@ -955,6 +962,7 @@ def render_run_form(cfg):
 
 
             # If user checked "Force Google re-auth for this run", kick them into auth gating first.
+            """
             if cfg.FORCE_REAUTH:
                 clear_token()
                 try:
@@ -967,132 +975,344 @@ def render_run_form(cfg):
                 except Exception as e:
                     st.error(f"Failed to start OAuth: {e}")
             else:
-                # --- Live run with timer + last log (no full log after completion) ---
-                # Write all logs to last_run.log; overwrite on each run
-                logger = StatusLogger(print_to_console=True, file_path="last_run.log", overwrite=True)
-                result_holder = {"value": None, "error": None}
+                st.session_state.ui_phase = UI_RUNNING
+                _rerun()
+            """
 
-                def _runner():
-                    try:
-                        result_holder["value"] = run_pipeline(cfg, logger=logger)
-                    # Catch BaseException so SystemExit / KeyboardInterrupt are captured too
-                    except BaseException as e:
-                        result_holder["error"] = e
+def run_pipeline_controller(cfg):
+    logger = StatusLogger(
+        print_to_console=True,
+        file_path="last_run.log",
+        overwrite=True
+    )
 
-                t0 = time.perf_counter()
-                th = threading.Thread(target=_runner, daemon=True)
-                th.start()
-
-                with st.status("Running pipeline…", expanded=True) as status:
-                    timer_ph = st.empty()
-                    lastlog_ph = st.empty()
-                    while th.is_alive():
-                        elapsed = int(time.perf_counter() - t0)
-                        timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
-                        lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
-                        time.sleep(0.5)
-
-                    th.join()
-                    elapsed = int(time.perf_counter() - t0)
-                    timer_ph.markdown(f"**Elapsed:** `{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}`")
-                    lastlog_ph.markdown(f"**Last:** {logger.last_line()}")
-
-                    if result_holder["error"]:
-                        err = result_holder["error"]
-                        err_text = str(err)
-
-                        # Always lock out Run after a failure until a new upload occurs                        
-                        st.session_state.sales_uploaded_ok = False
-                        st.session_state.vendor_uploaded_ok = False
+    
+    try:
+        result = run_pipeline(cfg, logger=logger)
+        PIPELINE_QUEUE.put(("success", result))
+    except Exception as e:
+        PIPELINE_QUEUE.put(("error", str(e)))
 
 
-                        # --- Special case: "Please only upload 1 or 2 full weeks of data"
-                        weeks_err = "Please only upload 1 or 2 full weeks of data" in err_text
-                        if weeks_err:
-                            # Route to the simple locked UI (error + Retry)
-                            st.session_state["file_error"] = err_text
-                            st.session_state["incoming_locked"] = True
-                            status.update(label="❌ Invalid file (1–2 full weeks required)", state="error")
-                            _rerun()
-                            st.stop()
+def render_running_status(cfg):
+    """
+    RUNNING UI only.
+    No execution, no error handling, no branching.
+    """
 
-                        # --- Generic error path: show details here and freeze the UI
-                        st.error("Run failed.")
-                        try:
-                            with st.expander("Error details", expanded=True):
-                                st.exception(err)
-                        except Exception:
-                            # Fallback if exception rendering fails
-                            with st.expander("Error details", expanded=True):
-                                st.write(err_text)
+    with st.status("Running pipeline…", expanded=True):
+        timer_ph = st.empty()
+        log_ph = st.empty()
 
-                        # Freeze the UI until the user clicks Retry (after the form)
-                        st.session_state["freeze_ui"] = True
-                        status.update(label="❌ Failed", state="error")
-                        
+        t0 = st.session_state.get("_run_start_time")
+        if t0 is None:
+            t0 = time.perf_counter()
+            st.session_state["_run_start_time"] = t0
 
-                    else:
-                        result = result_holder["value"]
-                        if result is None:
-                            st.error("Run finished without returning a result. Check logs and inputs (IDs, Drive access).")
-                            status.update(label="⚠️ No result", state="error")
-                        else:
-                            st.write("### Outputs")
-                            col1, col2, col3 = st.columns(3)
-                            col1.metric("Location", result.location)
-                            col2.metric("Timestamp", result.timestamp)
-                            mm = result.elapsed_seconds
-                            col3.metric("Elapsed", f"{mm//3600:02d}:{(mm%3600)//60:02d}:{mm%60:02d}")
+        elapsed = int(time.perf_counter() - t0)
+        timer_ph.markdown(
+            f"**Elapsed:** `{elapsed//3600:02d}:"
+            f"{(elapsed%3600)//60:02d}:"
+            f"{elapsed%60:02d}`"
+        )
 
-                            if getattr(result, "manager_pdf_link", None):
-                                st.success(f"Manager PDF: {result.manager_pdf_link}")
-                            if getattr(result, "full_order_link", None):
-                                st.success(f"Full Order Sheet: {result.full_order_link}")
-                            if getattr(result, "err_exist", None):
-                                st.warning(f"Errors Exist - Some Items Not Listed In Vendor Price Book, View Errors: {result.err_link}")
+        if os.path.exists("last_run.log"):
+            with open("last_run.log", "r") as f:
+                lines = f.readlines()[-5:]
+                log_ph.markdown(
+                    "**Last log lines:**\n\n" + "```\n" + "".join(lines) + "\n```"
+                )
+        else:
+            log_ph.markdown("*Waiting for logs…*")
 
-                                
-                            if os.path.exists("last_run.log"):
-                                with open("last_run.log", "rb") as f:
-                                    st.session_state["last_run_log"] = f.read()
-                                    st.session_state["last_run_timestamp"] = result.timestamp
+        try:
+            status, payload = PIPELINE_QUEUE.get_nowait()
+        except queue.Empty:
+            return  # still running
+
+        if status == "success":
+            st.session_state.pipeline_result = payload
+            st.session_state.ui_phase = UI_RESULT
+        else:
+            st.session_state.run_error = payload
+            st.session_state.ui_phase = UI_RESULT_ERROR
+
+        # clean up
+        st.session_state.pipeline_thread_started = False
+        st.rerun()
 
 
-                            
-                            st.session_state.sales_uploaded_ok = False
-                            st.session_state.vendor_uploaded_ok = False
-                            st.session_state.incoming_uploader_version += 1
+def render_results(cfg):
+    result = st.session_state.get("pipeline_result")
 
-                            status.update(label="✅ Completed", state="complete")
-                            time.sleep(10)
-                            _rerun()
+    if result is None:
+        st.session_state.run_error = "Pipeline finished without a result."
+
+    with st.container(border=True):
+        st.subheader("✅ Run Complete")
+
+        st.write("### Outputs")
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Location", result.location)
+        col2.metric("Timestamp", result.timestamp)
+        col3.metric(
+            "Elapsed",
+            f"{result.elapsed_seconds//3600:02d}:"
+            f"{(result.elapsed_seconds%3600)//60:02d}:"
+            f"{result.elapsed_seconds%60:02d}"
+        )
+            
+        if os.path.exists("last_run.log"):
+            with open("last_run.log", "rb") as f:
+                st.session_state["last_run_log"] = f.read()
+                st.session_state["last_run_timestamp"] = result.timestamp
 
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        if st.session_state.get("offer_log_download", False) and "last_run_log" in st.session_state:
+            st.download_button(
+                "⬇️ Download full log (last_run.log)",
+                st.session_state["last_run_log"],
+                file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+                mime="text/plain",
+                width='stretch'
+                )
 
-    if st.session_state.get("offer_log_download", False) and "last_run_log" in st.session_state:
-        st.download_button(
-            "⬇️ Download full log (last_run.log)",
-            st.session_state["last_run_log"],
-            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
-            mime="text/plain",
-            width='stretch'
+
+def render_sidebar(cfg):
+    with st.sidebar:
+        st.header("Utilities")
+
+        # --- Existing buttons ---
+        if st.button("Google Sign Out", type="secondary", width='stretch'):
+            clear_token()
+            for key in ["auth_required", "oauth_flow", "oauth_url", "auth_checked"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            _rerun()
+
+        st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", width='stretch')
+        st.link_button("Open Google Drive", "https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
+        st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
+        st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
+
+        st.checkbox(
+            "Offer full log download",
+            key="offer_log_download",
+            help="If enabled, a 'Download last_run.log' button appears when a run finishes."
+        )
+
+        # =============================================================
+        # DEV-ONLY: Push DEV Defaults → PROD Defaults
+        # =============================================================
+        DEV_ENVIRONMENT = bool(st.secrets.get("DEV_ENVIRONMENT", False))
+
+        if DEV_ENVIRONMENT:
+            st.divider()
+            st.subheader("DEV Tools")
+
+            if st.button(
+                "🚀 Push Dev Defaults to Prod",
+                type="primary",
+                width="stretch",
+                help="Overwrite the PROD defaults JSON with the current DEV defaults",
+            ):
+                st.session_state["confirm_push_dev_to_prod"] = True
+
+
+        @st.dialog("⚠️ Confirm Push to Production")
+        def confirm_push_dev_to_prod():
+            st.markdown(
+                """
+                **You are about to overwrite the PROD defaults configuration.**
+
+                - ✅ PROD file ID will remain unchanged  
+                - ✅ DEV defaults will completely replace PROD defaults  
+                - ❌ This action **cannot be undone**
+
+                Please confirm you want to continue.
+                """
             )
 
-    # Post-form controls for generic errors
-    # If the UI is frozen due to a non-file error, show a single Retry button here.
-    if st.session_state.get("freeze_ui", False) and not st.session_state.get("incoming_locked", False):
-        retry_cols = st.columns([1, 3, 1])
-        with retry_cols[1]:
-            if st.button("Retry", type="secondary", width='stretch'):
-                # Unfreeze, but force a new file upload before the next run
-                st.session_state["freeze_ui"] = False
-                st.session_state[_both_uploads_ok()] = False
-                st.session_state["incoming_uploader_version"] += 1  # resets uploader widget
-                _rerun()
+            col_confirm, col_cancel = st.columns(2)
+
+            with col_confirm:
+                if st.button("✅ Yes — Push to PROD", type="primary", width="stretch"):
+                    try:
+                        DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
+                        PROD_CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+
+                        if not DEV_CONFIG_FILE_ID or not PROD_CONFIG_FILE_ID:
+                            st.error("Missing DEV_CONFIG_FILE_ID or CONFIG_FILE_ID in secrets.")
+                        else:
+                            creds = load_valid_token(cfg.SCOPES)
+                            if not creds:
+                                st.error("Google authentication required.")
+                            else:
+                                _, drive, _ = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+
+                                # Load DEV defaults
+                                dev_blob = drive.files().get_media(
+                                    fileId=DEV_CONFIG_FILE_ID
+                                ).execute()
+                                dev_defaults = json.loads(dev_blob.decode("utf-8"))
+
+                                # Overwrite PROD defaults (same file ID)
+                                save_config_to_drive(
+                                    drive,
+                                    dev_defaults,
+                                    file_id=PROD_CONFIG_FILE_ID
+                                )
+
+                                st.success("✅ DEV defaults successfully pushed to PROD.")
+
+                    except Exception as e:
+                        st.error(f"Push failed: {e}")
+
+                    finally:
+                        st.session_state.pop("confirm_push_dev_to_prod", None)
+                        _rerun()
+
+            with col_cancel:
+                if st.button("❌ Cancel", width="stretch"):
+                    st.session_state.pop("confirm_push_dev_to_prod", None)
+                    _rerun()
 
 
+        # Trigger dialog
+        if st.session_state.get("confirm_push_dev_to_prod"):
+            confirm_push_dev_to_prod()
 
+def render_upload_different_button(cfg):
+    if st.button("🔁 Upload different files", width="stretch"):
+        st.session_state.sales_uploaded_ok = False
+        st.session_state.vendor_uploaded_ok = False
+        st.session_state.uploader_version += 1
+
+        reset_pipeline_state()
+
+        st.session_state.ui_phase = UI_UPLOAD
+        _rerun()
+
+
+def render_start(cfg):
+
+    # --- STATE INIT ---
+    init_thread_state()
+
+    # --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
+    params = st.query_params
+    if "code" in params and "state" in params:
+        try:
+            finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
+            # Token is saved locally in this new tab's app process
+            st.success("✅ Google authentication complete.")
+
+            # Remove code/state from URL
+            st.query_params.clear()
+
+            # No messaging back to opener and NO window.close().
+            # This tab becomes the main app; just rerun to flip UI.
+            st.toast("Signed in. Loading the app…")
+            _rerun()
+        except Exception as e:
+            st.error(f"OAuth error: {e}")
+
+    # If a valid token now exists (in this tab), reload cfg (Drive overlays, etc.)
+    st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
+    if not st.session_state.auth_required:
+        cfg = Config.load()
+
+    # Session state defaults
+    defaults = {
+        "sales_selected_name": None,
+        "vendor_selected_name": None,
+        "sales_uploaded_ok": False,
+        "vendor_uploaded_ok": False,
+        "offer_log_download": False,
+        "uploader_version": 0,
+        "ui_phase": UI_UPLOAD,
+        "auth_required": True,
+    }
+
+        
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+
+    def _both_uploads_ok():
+        return (
+            st.session_state.sales_uploaded_ok
+            and st.session_state.vendor_uploaded_ok
+        )
+    
+    if "sidebar_hint_seen" not in st.session_state:
+        st.info(
+            "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
+            icon="👈",
+        )
+        if st.button("Got it"):
+            st.session_state["sidebar_hint_seen"] = True
+            _rerun()
+
+def render_result_error(cfg):
+    with st.container(border=True):
+        st.subheader("❌ Run Failed")
+        st.error("The pipeline did not complete successfully.")
+
+        st.code(st.session_state.get("run_error", "Unknown error"))
+
+        if st.button("🔁 Upload different files", type="primary"):
+            st.session_state.pop("run_error", None)
+            st.session_state.ui_phase = UI_UPLOAD
+            _rerun()
+
+
+def render_upload_error(cfg):
+    with st.container(border=True):
+        st.subheader("❌ Invalid Upload")
+
+        st.error(
+            "Your uploaded file is invalid.\n\n"
+            "Please upload **1 or 2 full weeks of data only**."
+        )
+
+        st.code(st.session_state.get("upload_error", ""))
+
+        if st.button("🔁 Upload different files", type="primary"):
+            st.session_state.pop("upload_error", None)
+            st.session_state.ui_phase = UI_UPLOAD
+            _rerun()  
+
+def render_app(cfg):
+    phase = st.session_state.ui_phase
+
+    if phase == UI_UPLOAD:
+        render_sidebar(cfg)
+        render_upload_card(cfg)
+
+    elif phase == UI_READY:
+        render_sidebar(cfg)
+        render_run_options(cfg)
+        render_upload_different_button(cfg)
+
+    elif phase == UI_RUNNING:
+        render_running_status(cfg)
+
+    elif phase == UI_RESULT:
+        render_sidebar(cfg)
+        render_results(cfg)
+        render_upload_different_button(cfg)
+    
+    elif phase == UI_RESULT_ERROR:
+        render_sidebar(cfg)
+        render_result_error(cfg)
+
+    elif phase == UI_UPLOAD_ERROR:
+        render_sidebar(cfg)
+        render_upload_error(cfg)
+        
 
 
 # =========================
@@ -1114,160 +1334,9 @@ st.set_page_config(
     },
 )
 
-if "sidebar_hint_seen" not in st.session_state:
-    st.info(
-        "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
-        icon="👈",
-    )
-    if st.button("Got it"):
-        st.session_state["sidebar_hint_seen"] = True
-        st.rerun()
-
 
 cfg = Config.load()
 
-# --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
-params = st.query_params
-if "code" in params and "state" in params:
-    try:
-        finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
-        # Token is saved locally in this new tab's app process
-        st.success("✅ Google authentication complete.")
-
-        # Remove code/state from URL
-        st.query_params.clear()
-
-        # No messaging back to opener and NO window.close().
-        # This tab becomes the main app; just rerun to flip UI.
-        st.toast("Signed in. Loading the app…")
-        st.rerun()
-    except Exception as e:
-        st.error(f"OAuth error: {e}")
-
-# If a valid token now exists (in this tab), reload cfg (Drive overlays, etc.)
-st.session_state.auth_required = (load_valid_token(cfg.SCOPES) is None)
-if not st.session_state.auth_required:
-    cfg = Config.load()
-
-# Session state defaults
-defaults = {
-    "sales_selected_name": None,
-    "vendor_selected_name": None,
-    "sales_uploaded_ok": False,
-    "vendor_uploaded_ok": False,
-    "offer_log_download": False,
-    "incoming_uploader_version": 0
-}
-
-    
-for key, default in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-
-# Sidebar
-with st.sidebar:
-    st.header("Utilities")
-
-    # --- Existing buttons ---
-    if st.button("Google Sign Out", type="secondary", width='stretch'):
-        clear_token()
-        for key in ["auth_required", "oauth_flow", "oauth_url", "auth_checked"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
-
-    st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", width='stretch')
-    st.link_button("Open Google Drive", "https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
-    st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
-    st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
-
-    st.checkbox(
-        "Offer full log download",
-        key="offer_log_download",
-        help="If enabled, a 'Download last_run.log' button appears when a run finishes."
-    )
-
-    # =============================================================
-    # DEV-ONLY: Push DEV Defaults → PROD Defaults
-    # =============================================================
-    DEV_ENVIRONMENT = bool(st.secrets.get("DEV_ENVIRONMENT", False))
-
-    if DEV_ENVIRONMENT:
-        st.divider()
-        st.subheader("DEV Tools")
-
-        if st.button(
-            "🚀 Push Dev Defaults to Prod",
-            type="primary",
-            width="stretch",
-            help="Overwrite the PROD defaults JSON with the current DEV defaults",
-        ):
-            st.session_state["confirm_push_dev_to_prod"] = True
-
-
-    @st.dialog("⚠️ Confirm Push to Production")
-    def confirm_push_dev_to_prod():
-        st.markdown(
-            """
-            **You are about to overwrite the PROD defaults configuration.**
-
-            - ✅ PROD file ID will remain unchanged  
-            - ✅ DEV defaults will completely replace PROD defaults  
-            - ❌ This action **cannot be undone**
-
-            Please confirm you want to continue.
-            """
-        )
-
-        col_confirm, col_cancel = st.columns(2)
-
-        with col_confirm:
-            if st.button("✅ Yes — Push to PROD", type="primary", width="stretch"):
-                try:
-                    DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
-                    PROD_CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
-
-                    if not DEV_CONFIG_FILE_ID or not PROD_CONFIG_FILE_ID:
-                        st.error("Missing DEV_CONFIG_FILE_ID or CONFIG_FILE_ID in secrets.")
-                    else:
-                        creds = load_valid_token(cfg.SCOPES)
-                        if not creds:
-                            st.error("Google authentication required.")
-                        else:
-                            _, drive, _ = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-
-                            # Load DEV defaults
-                            dev_blob = drive.files().get_media(
-                                fileId=DEV_CONFIG_FILE_ID
-                            ).execute()
-                            dev_defaults = json.loads(dev_blob.decode("utf-8"))
-
-                            # Overwrite PROD defaults (same file ID)
-                            save_config_to_drive(
-                                drive,
-                                dev_defaults,
-                                file_id=PROD_CONFIG_FILE_ID
-                            )
-
-                            st.success("✅ DEV defaults successfully pushed to PROD.")
-
-                except Exception as e:
-                    st.error(f"Push failed: {e}")
-
-                finally:
-                    st.session_state.pop("confirm_push_dev_to_prod", None)
-                    st.rerun()
-
-        with col_cancel:
-            if st.button("❌ Cancel", width="stretch"):
-                st.session_state.pop("confirm_push_dev_to_prod", None)
-                st.rerun()
-
-
-    # Trigger dialog
-    if st.session_state.get("confirm_push_dev_to_prod"):
-        confirm_push_dev_to_prod()
 
 # Auth gate
 if st.session_state.auth_required:
@@ -1343,19 +1412,5 @@ if st.session_state.auth_required:
                 )
             st.stop()
 
-# Optional lock if invalid incoming file was detected
-locked = st.session_state.get("incoming_locked", False)
-if locked:
-
-    err_msg = st.session_state.get("file_error", "An unknown error occurred.")
-    st.error(err_msg)
-
-    if st.button("Retry", type="primary"):
-        st.session_state["incoming_locked"] = False
-        _rerun()
-    st.stop()
-
-else:
-    # Ensure config reflects Drive-based overrides after auth
-    cfg = Config.load()
-    render_run_form(cfg)
+render_start(cfg)
+render_app(cfg)
