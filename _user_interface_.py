@@ -244,15 +244,14 @@ def reset_to_upload():
     st.session_state.ui_phase = UI_UPLOAD
 
 def init_thread_state():
+    if "pipeline_queue" not in st.session_state:
+        st.session_state.pipeline_queue = queue.Queue()
     if "pipeline_thread_started" not in st.session_state:
         st.session_state.pipeline_thread_started = False
-
     if "pipeline_done" not in st.session_state:
         st.session_state.pipeline_done = False
-
     if "pipeline_error" not in st.session_state:
         st.session_state.pipeline_error = None
-
     if "pipeline_result" not in st.session_state:
         st.session_state.pipeline_result = None
 
@@ -987,9 +986,9 @@ def run_pipeline_controller(cfg):
     
     try:
         result = run_pipeline(cfg, logger=logger)
-        PIPELINE_QUEUE.put(("success", result))
+        st.session_state.pipeline_queue.put(("success", result))
     except Exception as e:
-        PIPELINE_QUEUE.put(("error", str(e)))
+        st.session_state.pipeline_queue.put(("error", str(e)))
 
 
 def render_running_status(cfg):
@@ -1029,9 +1028,9 @@ def render_running_status(cfg):
 
         # ---- Pipeline completion check ----
         try:
-            status, payload = PIPELINE_QUEUE.get_nowait()
+            status, payload = st.session_state.pipeline_queue.get_nowait()
         except queue.Empty:
-            pass  # still running
+            status = None  # still running
 
         if status == "success":
             st.session_state.pipeline_result = payload
