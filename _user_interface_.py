@@ -1039,7 +1039,7 @@ def render_running_status(cfg):
             st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
             _rerun()
-        elif status is not 'Still Running':
+        elif status != 'Still Running':
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
             st.session_state.pipeline_done = True
