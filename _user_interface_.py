@@ -1409,5 +1409,5 @@ if st.session_state.auth_required:
                 )
             st.stop()
 
-render_start()
+render_start(cfg)
 render_app(cfg)
