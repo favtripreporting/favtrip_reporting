@@ -993,7 +993,7 @@ def run_pipeline_controller(cfg):
 
 def render_running_status(cfg):
     # 🔁 Auto-refresh every 1000ms while this view is active
-    if (st.session_state.pipeline_thread_started) and (not st.session_state_pipeline_done):
+    if (st.session_state.pipeline_thread_started) and (not st.session_state.pipeline_done):
         st_autorefresh(interval=1000, key="pipeline_refresh")
 
     with st.status("Running pipeline…", expanded=True):
@@ -1040,7 +1040,7 @@ def render_running_status(cfg):
         if status == "success":
             st.session_state.pipeline_result = payload
             st.session_state.ui_phase = UI_RESULT
-            
+
         elif status != 'Still Running':
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
