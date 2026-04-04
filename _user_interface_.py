@@ -350,7 +350,7 @@ def render_upload_card(cfg):
 
             if sales_file and st.session_state.sales_selected_name != sales_file.name:
                 st.session_state.sales_selected_name = sales_file.name
-                st.session_state.sales_uploaded_ok = False
+                st.session_state.sales_uploaded_ok = True
 
             vendor_key = f"vendor_upload_v{st.session_state.uploader_version}"
             vendor_file = st.file_uploader(
@@ -362,16 +362,18 @@ def render_upload_card(cfg):
 
             if vendor_file and st.session_state.vendor_selected_name != vendor_file.name:
                 st.session_state.vendor_selected_name = vendor_file.name
-                st.session_state.vendor_uploaded_ok = False
+                st.session_state.vendor_uploaded_ok = True
         
         with upbtn_col:
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
+
+            upload_disabled = (st.session_state.sales_uploaded_ok + st.session_state.vendor_uploaded_ok) < 2
 
             upload_clicked = st.button(
                 "⬆️ Upload Now",
                 width="stretch",
                 type="primary",
-                disabled=False,
+                disabled=upload_disabled,
                 key="upload_submit",
             )
 
