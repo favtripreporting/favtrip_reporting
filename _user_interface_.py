@@ -84,6 +84,7 @@ import queue
 import streamlit as st
 from streamlit.components.v1 import html
 from streamlit.components.v1 import html as _html_listener
+from streamlit_autorefresh import st_autorefresh
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -399,6 +400,7 @@ def render_upload_card(cfg):
                 _rerun()
 
             try:
+                st.warning("Uploading files to google drive...")
                 drive = _get_drive_service_or_raise(cfg)
                 
 
@@ -466,20 +468,6 @@ def render_run_options(cfg):
     )
 
     # Have we successfully uploaded both files?
-    """had_ok = (
-        st.session_state.sales_uploaded_ok
-        and st.session_state.vendor_uploaded_ok
-    )
-
-    # Final gating rule
-    run_enabled = (
-        had_ok
-        and not files_dirty
-    )
-
-    run_disabled = not run_enabled
-    
-    """
 
     # OPEN the wrapper with real HTML (no entities)
     st.markdown(f'<div class="{run_form_wrapper_classes}">', unsafe_allow_html=True)
@@ -1001,15 +989,14 @@ def run_pipeline_controller(cfg):
 
 
 def render_running_status(cfg):
-    """
-    RUNNING UI only.
-    No execution, no error handling, no branching.
-    """
+    # 🔁 Auto-refresh every 500ms while this view is active
+    st_autorefresh(interval=500, key="pipeline_refresh")
 
     with st.status("Running pipeline…", expanded=True):
         timer_ph = st.empty()
         log_ph = st.empty()
 
+        # ---- Stopwatch ----
         t0 = st.session_state.get("_run_start_time")
         if t0 is None:
             t0 = time.perf_counter()
@@ -1022,15 +1009,20 @@ def render_running_status(cfg):
             f"{elapsed%60:02d}`"
         )
 
+        # ---- Log tail ----
         if os.path.exists("last_run.log"):
             with open("last_run.log", "r") as f:
                 lines = f.readlines()[-5:]
-                log_ph.markdown(
-                    "**Last log lines:**\n\n" + "```\n" + "".join(lines) + "\n```"
-                )
+
+            log_ph.markdown(
+                "**Last log lines:**\n\n```text\n"
+                + "".join(lines)
+                + "\n```"
+            )
         else:
             log_ph.markdown("*Waiting for logs…*")
 
+        # ---- Pipeline completion check ----
         try:
             status, payload = PIPELINE_QUEUE.get_nowait()
         except queue.Empty:
@@ -1043,10 +1035,8 @@ def render_running_status(cfg):
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
 
-        # clean up
         st.session_state.pipeline_thread_started = False
         st.rerun()
-
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
