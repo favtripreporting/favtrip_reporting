@@ -1213,6 +1213,9 @@ def render_start(cfg):
             finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
             # Token is saved locally in this new tab's app process
             st.success("✅ Google authentication complete.")
+            
+            has_token = (load_valid_token(cfg.SCOPES) is None)
+            st.session_state.auth_required = not has_token
 
             # Remove code/state from URL
             st.query_params.clear()
