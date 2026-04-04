@@ -246,6 +246,7 @@ class Config:
     GID_MANAGER_PDF: str = "1921812573"
     GID_ORDER_CSV: str = "1875928148"
     GID_ERROR_REPORT: str = "1581903111"
+    GID_BEV_ERRORS: str = "72711538"
     LOCATION_SHEET_TITLE: str = "REFR: Values"
     LOCATION_NAMED_RANGE: str = "_locations"
     TIMESTAMP_TZ: str = "America/Chicago"
@@ -305,6 +306,7 @@ class Config:
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
             GID_ERROR_REPORT=str(_get_secret("GID_ERROR_REPORT", "1581903111")),
+            GID_BEV_ERRORS=str(_get_secret("GID_BEV_ERRORS", "72711538")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
             TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),

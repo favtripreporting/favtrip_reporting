@@ -690,6 +690,8 @@ def render_run_form(cfg):
                         help="The GID of the Error Report Tab within the Master Calculations Sheet that should be used for outputs.")
                     gid_order = st.text_input("Order Report gid", value=str(cfg.GID_ORDER_CSV),
                         help="The GID of the Order Report Tab within the Master Calculations Sheet that should be used for outputs.")
+                    gid_bev_err = st.text_input("Unassigned Beverages Report gid", value=str(cfg.GID_ORDER_CSV),
+                        help="The GID of the UB Report Tab within the Master Calculations Sheet that should be used for outputs.")
                 with gc2:
                     st.markdown("###### Titles")
                     loc_sheet = st.text_input("Named Range Sheet Title", value=cfg.LOCATION_SHEET_TITLE,
@@ -793,6 +795,7 @@ def render_run_form(cfg):
             cfg.GID_MANAGER_PDF = gid_mgr
             cfg.GID_ORDER_CSV = gid_order
             cfg.GID_ERROR_REPORT = gid_err
+            cfg.GID_BEV_ERRORS = gid_bev_err
             cfg.LOCATION_SHEET_TITLE = loc_sheet
             cfg.LOCATION_NAMED_RANGE = loc_range
             cfg.TEMPLATE_UPDATE_RANGE = update_range
@@ -886,6 +889,7 @@ def render_run_form(cfg):
                             "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
                             "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
                             "GID_ERROR_REPORT": cfg.GID_ERROR_REPORT,
+                            "GID_BEV_ERRORS": cfg.GID_BEV_ERRORS,
 
                             "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
                             "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
