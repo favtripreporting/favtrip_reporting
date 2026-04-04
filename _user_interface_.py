@@ -236,6 +236,10 @@ def _rerun():
 def reset_to_upload():
     st.session_state.sales_uploaded_ok = False
     st.session_state.vendor_uploaded_ok = False
+
+    st.session_state.sales_selected_name = None
+    st.session_state.vendor_selected_name = None
+
     st.session_state.uploader_version += 1
     st.session_state.ui_phase = UI_UPLOAD
 
@@ -1186,10 +1190,7 @@ def render_sidebar(cfg):
 
 def render_upload_different_button(cfg):
     if st.button("🔁 Upload different files", width="stretch"):
-        st.session_state.sales_uploaded_ok = False
-        st.session_state.vendor_uploaded_ok = False
-        st.session_state.uploader_version += 1
-
+        reset_to_upload()
         reset_pipeline_state()
 
         st.session_state.ui_phase = UI_UPLOAD
