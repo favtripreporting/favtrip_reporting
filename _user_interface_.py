@@ -252,6 +252,8 @@ def init_thread_state():
         st.session_state.pipeline_error = None
     if "pipeline_result" not in st.session_state:
         st.session_state.pipeline_result = None
+    if "pipeline_thread" not in st.session_state:
+        st.session_state.pipeline_thread = None
 
 def reset_pipeline_state():
     st.session_state.pipeline_thread_started = False
@@ -858,11 +860,13 @@ def render_run_options(cfg):
                 st.session_state.pipeline_error = None
                 st.session_state.pipeline_result = None
 
-                threading.Thread(
+                t = threading.Thread(
                     target=run_pipeline_controller,
                     args=(cfg,),
                     daemon=True
-                ).start()
+                )
+                st.session_state.pipeline_thread = t
+                t.start()
 
             _rerun()
             # --- END ADD ---
@@ -1037,17 +1041,23 @@ def render_running_status(cfg):
             log_ph.markdown("*Waiting for logs…*")
 
         # ---- Pipeline completion check ----
-        if not PIPELINE_QUEUE.empty():
-            status, payload = PIPELINE_QUEUE.get_nowait()
+        thread = st.session_state.get("pipeline_thread")
 
+        # ✅ Authoritative completion check
+        if thread and not thread.is_alive():
             st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
 
-            if status == "success":
-                st.session_state.pipeline_result = payload
-                st.session_state.ui_phase = UI_RESULT
-            else:
-                st.session_state.run_error = payload
+            try:
+                status, payload = PIPELINE_QUEUE.get_nowait()
+                if status == "success":
+                    st.session_state.pipeline_result = payload
+                    st.session_state.ui_phase = UI_RESULT
+                else:
+                    st.session_state.run_error = payload
+                    st.session_state.ui_phase = UI_RESULT_ERROR
+            except queue.Empty:
+                st.session_state.run_error = "Pipeline finished but produced no result."
                 st.session_state.ui_phase = UI_RESULT_ERROR
 
             _rerun()
