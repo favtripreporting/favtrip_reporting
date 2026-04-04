@@ -377,7 +377,7 @@ def render_upload_card(cfg):
                 "⬆️ Upload Now",
                 width="stretch",
                 type="primary",
-                disabled=_both_uploads_ok(),
+                disabled= (not _both_uploads_ok()),
                 key="upload_submit",
             )
 
@@ -1326,7 +1326,7 @@ if "code" in params and "state" in params:
     except Exception as e:
         st.error(f"OAuth error: {e}")
 
-if "sidebar_hint_seen" not in st.session_state:
+if (not st.session_state.auth_required) and ("sidebar_hint_seen" not in st.session_state):
     st.info(
         "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
         icon="👈",
@@ -1408,5 +1408,5 @@ if st.session_state.auth_required:
                     "Authorized redirect URI matches exactly (including trailing slash)."
                 )
             st.stop()
-            
+
 render_app(cfg)
