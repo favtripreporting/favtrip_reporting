@@ -989,8 +989,9 @@ def run_pipeline_controller(cfg):
 
 
 def render_running_status(cfg):
-    # 🔁 Auto-refresh every 500ms while this view is active
-    st_autorefresh(interval=500, key="pipeline_refresh")
+    # 🔁 Auto-refresh every 1000ms while this view is active
+    if st.session_state.pipeline_thread_started:
+        st_autorefresh(interval=1000, key="pipeline_refresh")
 
     with st.status("Running pipeline…", expanded=True):
         timer_ph = st.empty()
@@ -1031,18 +1032,22 @@ def render_running_status(cfg):
         if status == "success":
             st.session_state.pipeline_result = payload
             st.session_state.ui_phase = UI_RESULT
+            st.session_state.pipeline_thread_started = False
         else:
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
+            st.session_state.pipeline_thread_started = False
 
-        st.session_state.pipeline_thread_started = False
         st.rerun()
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
 
     if result is None:
-        st.session_state.run_error = "Pipeline finished without a result."
+        st.session_state.run_error = "Pipeline finished without a result."        
+        st.session_state.ui_phase = UI_RESULT_ERROR
+        _rerun()
+
 
     with st.container(border=True):
         st.subheader("✅ Run Complete")
@@ -1317,13 +1322,18 @@ if "code" in params and "state" in params:
         st.error(f"OAuth error: {e}")
 
 if (not st.session_state.auth_required) and ("sidebar_hint_seen" not in st.session_state):
-    st.info(
-        "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
-        icon="👈",
-    )
-    if st.button("Got it"):
-        st.session_state["sidebar_hint_seen"] = True
-        _rerun()
+    col_msg, col_btn = st.columns([6, 1], vertical_alignment="center")
+
+    with col_msg:
+        st.info(
+            "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
+            icon="👈",
+        )
+
+    with col_btn:
+        if st.button("Got it", type="secondary"):
+            st.session_state["sidebar_hint_seen"] = True
+            _rerun()
 
 # Auth gate
 if st.session_state.auth_required:
