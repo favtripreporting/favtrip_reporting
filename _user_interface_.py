@@ -1201,40 +1201,6 @@ def render_upload_different_button(cfg):
         _rerun()
 
 
-def render_start(cfg):
-
-    # --- STATE INIT ---
-    init_thread_state()
-
-    # --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
-    params = st.query_params
-    if "code" in params and "state" in params:
-        try:
-            finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
-            # Token is saved locally in this new tab's app process
-            st.success("✅ Google authentication complete.")
-            
-            has_token = (load_valid_token(cfg.SCOPES) is not None)
-            st.session_state.auth_required = not has_token
-
-            # Remove code/state from URL
-            st.query_params.clear()
-
-            # No messaging back to opener and NO window.close().
-            # This tab becomes the main app; just rerun to flip UI.
-            st.toast("Signed in. Loading the app…")
-            _rerun()
-        except Exception as e:
-            st.error(f"OAuth error: {e}")
-    
-    if "sidebar_hint_seen" not in st.session_state:
-        st.info(
-            "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
-            icon="👈",
-        )
-        if st.button("Got it"):
-            st.session_state["sidebar_hint_seen"] = True
-            _rerun()
 
 def render_result_error(cfg):
     with st.container(border=True):
@@ -1335,6 +1301,40 @@ cfg = Config.load()
 creds = load_valid_token(cfg.SCOPES)
 st.session_state.auth_required = creds is None
 
+
+# --- STATE INIT ---
+init_thread_state()
+
+# --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
+params = st.query_params
+if "code" in params and "state" in params:
+    try:
+        finish_web_oauth(params["code"], params["state"], cfg.SCOPES)
+        # Token is saved locally in this new tab's app process
+        st.success("✅ Google authentication complete.")
+        
+        has_token = (load_valid_token(cfg.SCOPES) is not None)
+        st.session_state.auth_required = not has_token
+
+        # Remove code/state from URL
+        st.query_params.clear()
+
+        # No messaging back to opener and NO window.close().
+        # This tab becomes the main app; just rerun to flip UI.
+        st.toast("Signed in. Loading the app…")
+        _rerun()
+    except Exception as e:
+        st.error(f"OAuth error: {e}")
+
+if "sidebar_hint_seen" not in st.session_state:
+    st.info(
+        "⬅️ **Open the sidebar** for Utilities, Google auth, and DEV tools.",
+        icon="👈",
+    )
+    if st.button("Got it"):
+        st.session_state["sidebar_hint_seen"] = True
+        _rerun()
+
 # Auth gate
 if st.session_state.auth_required:
     # ----------------------------
@@ -1408,6 +1408,5 @@ if st.session_state.auth_required:
                     "Authorized redirect URI matches exactly (including trailing slash)."
                 )
             st.stop()
-
-render_start(cfg)
+            
 render_app(cfg)
