@@ -256,6 +256,12 @@ def reset_pipeline_state():
     st.session_state.pipeline_done = False
     st.session_state.pipeline_error = None
 
+def _both_uploads_ok():
+    return (
+        st.session_state.sales_uploaded_ok
+        and st.session_state.vendor_uploaded_ok
+    )
+
 
 # =========================
 # OAuth (Web / PKCE)
@@ -367,13 +373,11 @@ def render_upload_card(cfg):
         with upbtn_col:
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
 
-            upload_disabled = (st.session_state.sales_uploaded_ok + st.session_state.vendor_uploaded_ok) < 2
-
             upload_clicked = st.button(
                 "⬆️ Upload Now",
                 width="stretch",
                 type="primary",
-                disabled=upload_disabled,
+                disabled=_both_uploads_ok(),
                 key="upload_submit",
             )
 
@@ -1242,12 +1246,6 @@ def render_start(cfg):
         if key not in st.session_state:
             st.session_state[key] = default
 
-
-    def _both_uploads_ok():
-        return (
-            st.session_state.sales_uploaded_ok
-            and st.session_state.vendor_uploaded_ok
-        )
     
     if "sidebar_hint_seen" not in st.session_state:
         st.info(
@@ -1336,8 +1334,24 @@ st.set_page_config(
     },
 )
 
+defaults = {
+    "sales_selected_name": None,
+    "vendor_selected_name": None,
+    "sales_uploaded_ok": False,
+    "vendor_uploaded_ok": False,
+    "offer_log_download": False,
+    "uploader_version": 0,
+    "ui_phase": UI_UPLOAD,
+    "auth_required": True,
+}
+
+    
+for key, default in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 cfg = Config.load()
+
 
 
 # Auth gate
@@ -1414,5 +1428,5 @@ if st.session_state.auth_required:
                 )
             st.stop()
 
-render_start(cfg)
+render_start()
 render_app(cfg)
