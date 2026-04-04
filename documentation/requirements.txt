@@ -6,5 +6,6 @@ httplib2
 requests
 python-dotenv
 streamlit
+streamlit-autorefresh
 openpyxl
 pandas
