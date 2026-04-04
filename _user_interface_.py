@@ -986,14 +986,14 @@ def run_pipeline_controller(cfg):
     
     try:
         result = run_pipeline(cfg, logger=logger)
-        st.session_state.pipeline_queue.put(("success", result))
+        PIPELINE_QUEUE.put(("success", result))
     except Exception as e:
-        st.session_state.pipeline_queue.put(("error", str(e)))
+        PIPELINE_QUEUE.put(("error", str(e)))
 
 
 def render_running_status(cfg):
     # 🔁 Auto-refresh every 1000ms while this view is active
-    if st.session_state.pipeline_thread_started:
+    if (st.session_state.pipeline_thread_started) and (not st.session_state_pipeline_done):
         st_autorefresh(interval=1000, key="pipeline_refresh")
 
     with st.status("Running pipeline…", expanded=True):
@@ -1030,21 +1030,20 @@ def render_running_status(cfg):
         try:
             status, payload = st.session_state.pipeline_queue.get_nowait()
         except queue.Empty:
-            status = 'Still Running' 
-            payload = None # still running
+            return
+        
+        
+        st.session_state.pipeline_done = True
+        st.session_state.pipeline_thread_started = False
+
 
         if status == "success":
             st.session_state.pipeline_result = payload
             st.session_state.ui_phase = UI_RESULT
-            st.session_state.pipeline_done = True
-            st.session_state.pipeline_thread_started = False
-            _rerun()
+            
         elif status != 'Still Running':
             st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
-            st.session_state.pipeline_done = True
-            st.session_state.pipeline_thread_started = False
-            _rerun()
 
         _rerun()
 
