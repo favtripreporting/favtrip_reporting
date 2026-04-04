@@ -162,6 +162,7 @@ from __future__ import annotations
 import random
 import time
 from typing import Any, Dict, List
+import requests
 
 
 def list_sheets(svc, spreadsheet_id: str) -> List[Dict[str, Any]]:
@@ -173,6 +174,32 @@ def get_sheet(sheets, title: str):
         if s["properties"]["title"] == title:
             return s["properties"]
     return None
+
+
+def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str, portrait: bool = True,) -> bytes:
+    params = {
+        "format": fmt,
+        "gid": gid,
+    }
+
+    # PDF-only layout options
+    if fmt.lower() == "pdf":
+        params.update({
+            "portrait": "true" if portrait else "false",
+            "fitw": "true",   # fit to width
+            "scale": "4",     # normal scaling
+        })
+
+    # Build query string
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?{query}"
+
+    headers = {"Authorization": f"Bearer {creds.token}"}
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
+    return r.content
+
 
 
 def delete_sheet(svc, spreadsheet_id: str, title: str):
@@ -493,3 +520,20 @@ def _force_column_as_text(header: list[str], rows: list[list], header_name: str)
             r2[idx] = "'" + str(r2[idx])
         out.append(r2)
     return out
+
+def autoresize_columns(sheets_svc, spreadsheet_id, sheet_id):
+    sheets_svc.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={
+            "requests": [{
+                "autoResizeDimensions": {
+                    "dimensions": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": 0,
+                        "endIndex": 26  # A–Z (adjust if needed)
+                    }
+                }
+            }]
+        }
+    ).execute()

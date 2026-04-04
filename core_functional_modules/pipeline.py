@@ -94,7 +94,7 @@ from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix, refresh_sheets_with_prefix_chunked,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
-    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
+    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet, autoresize_columns, export_sheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
 from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report, email_bev_error_report
@@ -109,14 +109,6 @@ def clean_tag(s: str) -> str:
 import requests
 from io import BytesIO
 from openpyxl import Workbook
-
-
-def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
-    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format={fmt}&gid={gid}"
-    headers = {"Authorization": f"Bearer {creds.token}"}
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    return r.content
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
@@ -697,7 +689,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     # Step 4: Manager Report PDF
     if logger:
         logger.info("Exporting Manager Report (PDF)…")
-    pdf_bytes = export_sheet(creds, calc_ss_id, cfg.GID_MANAGER_PDF, "pdf")
+    pdf_bytes = export_sheet(creds, calc_ss_id, cfg.GID_MANAGER_PDF, "pdf", True)
     pdf_name = f"Manager_Report_{ts}_{location}.pdf"
     uploaded_pdf = upload_to_drive(drive_svc, pdf_bytes, pdf_name, "application/pdf", cfg.MANAGER_REPORT_FOLDER_ID, to_sheet=False)
     manager_link = uploaded_pdf.get("webViewLink")
@@ -776,7 +768,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         err_link = err_created.get("webViewLink")
 
         err_gid = first_gid(sheets_svc, err_file_id)
-        err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf")
+        
+        autoresize_columns(sheets_svc, err_file_id, err_gid)
+
+        err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf", False)
         err_pdf_name = f"Error_Report_{ts}.pdf"
 
         if logger:
@@ -821,7 +816,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     full_file_id = full_created["id"]
     full_link = full_created.get('webViewLink')
     full_gid = first_gid(sheets_svc, full_file_id)
-    full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
+    autoresize_columns(sheets_svc, full_file_id, full_gid)
+    full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf", False)
     full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
@@ -914,7 +910,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         gid = first_gid(sheets_svc, file_id)
     
         # Export the Google Sheet as PDF
-        pdf = export_sheet(creds, file_id, gid, "pdf")
+        autoresize_columns(sheets_svc, file_id, gid)
+        pdf = export_sheet(creds, file_id, gid, "pdf", False)
         pdfname = f"Order_Report_{'_'.join(name_parts)}_{ts}.pdf"
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
@@ -1042,7 +1039,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
                     sheet_link = created.get("webViewLink")
                     gid = first_gid(sheets_svc, sheet_id)
 
-                    pdf_bytes = export_sheet(creds, sheet_id, gid, "pdf")
+                    autoresize_columns(sheets_svc, sheet_id, gid)
+                    pdf_bytes = export_sheet(creds, sheet_id, gid, "pdf", False)
                     pdf_name = f"Unassigned_Beverages_Report_{ts}.pdf"
 
                     # Resolve recipients

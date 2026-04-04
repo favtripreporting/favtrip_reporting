@@ -312,7 +312,7 @@ def email_bev_error_report(
     msg.set_content(
         f"Hi Technical Support Team,\n"
         f"A user just ran the ordering pipeline successfully, however some beverages were not mapped to a sub-report-key / vendor.\n"
-        f"The BEV orders were still sent, however these unassigned beverages were included on their own order under BEV_UNASSIGNED.\n\n"
+        f"The BEV orders were still sent, however these unassigned beverages were included on their own order under BEV - UNASSIGNED.\n\n"
         f"The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.\n"
         f"To fix this error for future runs look at the Unassigned Beverages Report and add those Scan Codes to the Mapping File.\n"
         f"Please reply to this email once the Mapping File is updated so that the user knows they can rerun the pipeline if needed.\n\n"
@@ -326,7 +326,7 @@ def email_bev_error_report(
         f"""
         <p>Hi Technical Support Team,</p>
         <p>A user just ran the ordering pipeline successfully, however some beverages were not mapped to a sub-report-key / vendor.</p>
-        <p>The BEV orders were still sent; however, these unassigned beverages were included on their own order under <strong>BEV_UNASSIGNED</strong>.</p><p></p>
+        <p>The BEV orders were still sent; however, these unassigned beverages were included on their own order under <strong>BEV - UNASSIGNED</strong>.</p><p></p>
         <p>The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.</p>
         <p>To fix this error for future runs, please review the Unassigned Beverages Report and add those Scan Codes to the Mapping File.</p>
         <p>Please reply to this email once the Mapping File is updated so that the user knows they can rerun the pipeline if needed.</p><p></p>
