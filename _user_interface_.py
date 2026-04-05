@@ -243,6 +243,8 @@ def reset_to_upload():
     st.session_state.uploader_version += 1
     st.session_state.ui_phase = UI_UPLOAD
 
+    _rerun()
+
 def init_thread_state():
     if "pipeline_thread_started" not in st.session_state:
         st.session_state.pipeline_thread_started = False
@@ -1032,26 +1034,27 @@ def render_running_status(cfg):
         # ---- Pipeline completion check ----
         thread = st.session_state.get("pipeline_thread")
 
-        # ✅ Authoritative completion check
         if thread and not thread.is_alive():
             st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
 
-            # Only attempt to read the queue once
-            if st.session_state.pipeline_result is None and st.session_state.pipeline_error is None:
-                try:
-                    status, payload = PIPELINE_QUEUE.get_nowait()
-                    if status == "success":
-                        st.session_state.pipeline_result = payload
-                        st.session_state.ui_phase = UI_RESULT
-                    else:
-                        st.session_state.pipeline_error = payload
-                        st.session_state.ui_phase = UI_RESULT_ERROR
-                    _rerun()
-                except queue.Empty:
-                    # ✅ Normal state — result not read yet
-                    # Do nothing and let the next rerun try again
-                    return
+        # ✅ Always keep trying to read the queue until we succeed
+        if (
+            st.session_state.pipeline_done
+            and st.session_state.pipeline_result is None
+            and st.session_state.pipeline_error is None
+        ):
+            try:
+                status, payload = PIPELINE_QUEUE.get_nowait()
+                if status == "success":
+                    st.session_state.pipeline_result = payload
+                    st.session_state.ui_phase = UI_RESULT
+                else:
+                    st.session_state.pipeline_error = payload
+                    st.session_state.ui_phase = UI_RESULT_ERROR
+                st.rerun()
+            except queue.Empty:
+                pass
 
 
             _rerun()
