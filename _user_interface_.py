@@ -1037,18 +1037,21 @@ def render_running_status(cfg):
             st.session_state.pipeline_done = True
             st.session_state.pipeline_thread_started = False
 
-            try:
-                status, payload = PIPELINE_QUEUE.get_nowait()
-                if status == "success":
-                    st.session_state.pipeline_result = payload
-                    st.session_state.ui_phase = UI_RESULT
-                else:
-                    st.session_state.run_error = payload
-                    st.session_state.ui_phase = UI_RESULT_ERROR
-            
-            except queue.Empty:                
-                st.session_state.run_error = "Pipeline ended without returning a result."
-                st.session_state.ui_phase = UI_RESULT_ERROR
+            # Only attempt to read the queue once
+            if st.session_state.pipeline_result is None and st.session_state.pipeline_error is None:
+                try:
+                    status, payload = PIPELINE_QUEUE.get_nowait()
+                    if status == "success":
+                        st.session_state.pipeline_result = payload
+                        st.session_state.ui_phase = UI_RESULT
+                    else:
+                        st.session_state.pipeline_error = payload
+                        st.session_state.ui_phase = UI_RESULT_ERROR
+                    _rerun()
+                except queue.Empty:
+                    # ✅ Normal state — result not read yet
+                    # Do nothing and let the next rerun try again
+                    return
 
 
             _rerun()
