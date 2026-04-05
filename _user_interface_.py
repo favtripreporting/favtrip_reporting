@@ -240,6 +240,8 @@ def reset_to_upload():
     st.session_state.sales_selected_name = None
     st.session_state.vendor_selected_name = None
 
+    st.session_state.running_ui_initialized = False
+
     st.session_state.uploader_version += 1
     st.session_state.ui_phase = UI_UPLOAD
 
@@ -995,69 +997,102 @@ def run_pipeline_controller(cfg):
 
 
 def render_running_status(cfg):
-    
 
-    # 🔁 Auto-refresh every 1000ms while this view is active
-    if (st.session_state.pipeline_thread_started) and (not st.session_state.pipeline_done):
+    # ------------------------------------------------------------------
+    # Initialize one-time UI and state guards
+    # ------------------------------------------------------------------
+    if "running_ui_initialized" not in st.session_state:
+        st.session_state.running_ui_initialized = False
+
+    if "_run_start_time" not in st.session_state:
+        st.session_state._run_start_time = None
+
+    # ------------------------------------------------------------------
+    # Decide whether we should keep rerunning
+    # Keep rerunning WHILE:
+    #   - UI phase is RUNNING
+    #   - AND we do NOT yet have a result or error
+    # ------------------------------------------------------------------
+    should_refresh = (
+        st.session_state.ui_phase == UI_RUNNING
+        and st.session_state.pipeline_result is None
+        and st.session_state.pipeline_error is None
+    )
+
+    if should_refresh:
         st_autorefresh(interval=1000, key="pipeline_refresh")
 
-    with st.status("Running pipeline…", expanded=True):
-        timer_ph = st.empty()
-        log_ph = st.empty()
+    # ------------------------------------------------------------------
+    # Create the "Running…" UI ONCE
+    # ------------------------------------------------------------------
+    if not st.session_state.running_ui_initialized:
+        with st.status("Running pipeline…", expanded=True):
+            st.session_state.timer_ph = st.empty()
+            st.session_state.log_ph = st.empty()
+        st.session_state.running_ui_initialized = True
 
-        # ---- Stopwatch ----
-        t0 = st.session_state.get("_run_start_time")
-        if t0 is None:
-            t0 = time.perf_counter()
-            st.session_state["_run_start_time"] = t0
+    # ------------------------------------------------------------------
+    # Update timer
+    # ------------------------------------------------------------------
+    if st.session_state._run_start_time is None:
+        st.session_state._run_start_time = time.perf_counter()
 
-        elapsed = int(time.perf_counter() - t0)
-        timer_ph.markdown(
-            f"**Elapsed:** `{elapsed//3600:02d}:"
-            f"{(elapsed%3600)//60:02d}:"
-            f"{elapsed%60:02d}`"
-        )
+    elapsed = int(time.perf_counter() - st.session_state._run_start_time)
+    st.session_state.timer_ph.markdown(
+        f"**Elapsed:** `{elapsed//3600:02d}:"
+        f"{(elapsed%3600)//60:02d}:"
+        f"{elapsed%60:02d}`"
+    )
 
-        # ---- Log tail ----
-        if os.path.exists("last_run.log"):
-            with open("last_run.log", "r") as f:
+    # ------------------------------------------------------------------
+    # Update log tail
+    # ------------------------------------------------------------------
+    if os.path.exists("last_run.log"):
+        try:
+            with open("last_run.log", "r", encoding="utf-8") as f:
                 lines = f.readlines()[-5:]
+            st.session_state.log_ph.code("".join(lines), language="text")
+        except Exception:
+            st.session_state.log_ph.markdown("*Waiting for logs…*")
+    else:
+        st.session_state.log_ph.markdown("*Waiting for logs…*")
 
-            log_ph.markdown(
-                "**Last log lines:**\n\n```text\n"
-                + "".join(lines)
-                + "\n```"
-            )
-        else:
-            log_ph.markdown("*Waiting for logs…*")
+    # ------------------------------------------------------------------
+    # Track thread completion (NOT result availability)
+    # ------------------------------------------------------------------
+    thread = st.session_state.get("pipeline_thread")
+    if thread and not thread.is_alive():
+        st.session_state.pipeline_done = True
+        st.session_state.pipeline_thread_started = False
 
-        # ---- Pipeline completion check ----
-        thread = st.session_state.get("pipeline_thread")
+    # ------------------------------------------------------------------
+    # Consume pipeline result EXACTLY ONCE
+    # Never infer failure from an empty queue
+    # ------------------------------------------------------------------
+    if (
+        st.session_state.pipeline_done
+        and st.session_state.pipeline_result is None
+        and st.session_state.pipeline_error is None
+    ):
+        try:
+            status, payload = PIPELINE_QUEUE.get_nowait()
 
-        if thread and not thread.is_alive():
-            st.session_state.pipeline_done = True
-            st.session_state.pipeline_thread_started = False
+            if status == "success":
+                st.session_state.pipeline_result = payload
+                st.session_state.ui_phase = UI_RESULT
+            else:
+                st.session_state.pipeline_error = payload
+                st.session_state.ui_phase = UI_RESULT_ERROR
 
-        # ✅ Always keep trying to read the queue until we succeed
-        if (
-            st.session_state.pipeline_done
-            and st.session_state.pipeline_result is None
-            and st.session_state.pipeline_error is None
-        ):
-            try:
-                status, payload = PIPELINE_QUEUE.get_nowait()
-                if status == "success":
-                    st.session_state.pipeline_result = payload
-                    st.session_state.ui_phase = UI_RESULT
-                else:
-                    st.session_state.pipeline_error = payload
-                    st.session_state.ui_phase = UI_RESULT_ERROR
-                st.rerun()
-            except queue.Empty:
-                pass
-
+            # --- Tear down RUNNING state cleanly ---
+            st.session_state.running_ui_initialized = False
+            st.session_state._run_start_time = None
 
             _rerun()
+
+        except queue.Empty:
+            # ✅ Normal: result not visible *yet*
+            pass
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
@@ -1300,6 +1335,7 @@ defaults = {
     "uploader_version": 0,
     "ui_phase": UI_UPLOAD,
     "auth_required": True,
+    "running_ui_initialized": False
 }
 
     
