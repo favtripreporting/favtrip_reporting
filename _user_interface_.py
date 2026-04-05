@@ -986,7 +986,9 @@ def run_pipeline_controller(cfg):
     )
     try:
         result = run_pipeline(cfg, logger=logger)
-       
+        PIPELINE_QUEUE.put(("success", result))
+    except Exception as e:
+        PIPELINE_QUEUE.put(("error", str(e)))
 
 
 
