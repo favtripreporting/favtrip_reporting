@@ -1060,39 +1060,34 @@ def render_running_status(cfg):
     # ------------------------------------------------------------------
     # Track thread completion (NOT result availability)
     # ------------------------------------------------------------------
-    thread = st.session_state.get("pipeline_thread")
-    if thread and not thread.is_alive():
+    # ✅ ALWAYS try to consume queue first
+    try:
+        status, payload = PIPELINE_QUEUE.get_nowait()
+        if status == "success":
+            st.session_state.pipeline_result = payload
+            st.session_state.ui_phase = UI_RESULT
+        else:
+            st.session_state.pipeline_error = payload
+            st.session_state.ui_phase = UI_RESULT_ERROR
+
+        # Tear down RUNNING state
         st.session_state.pipeline_done = True
         st.session_state.pipeline_thread_started = False
+        st.session_state.running_ui_initialized = False
+        st.session_state._run_start_time = None
+        _rerun()
 
-    # ------------------------------------------------------------------
-    # Consume pipeline result EXACTLY ONCE
-    # Never infer failure from an empty queue
-    # ------------------------------------------------------------------
-    if (
-        st.session_state.pipeline_done
-        and st.session_state.pipeline_result is None
-        and st.session_state.pipeline_error is None
-    ):
-        try:
-            status, payload = PIPELINE_QUEUE.get_nowait()
+    except queue.Empty:
+        pass
 
-            if status == "success":
-                st.session_state.pipeline_result = payload
-                st.session_state.ui_phase = UI_RESULT
-            else:
-                st.session_state.pipeline_error = payload
-                st.session_state.ui_phase = UI_RESULT_ERROR
+    
+    # Optional safety net
+    thread = st.session_state.get("pipeline_thread")
+    if thread and not thread.is_alive() and not st.session_state.pipeline_done:
+        st.session_state.pipeline_error = "Pipeline finished but no result was returned."
+        st.session_state.ui_phase = UI_RESULT_ERROR
+        _rerun()
 
-            # --- Tear down RUNNING state cleanly ---
-            st.session_state.running_ui_initialized = False
-            st.session_state._run_start_time = None
-
-            _rerun()
-
-        except queue.Empty:
-            # ✅ Normal: result not visible *yet*
-            pass
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
