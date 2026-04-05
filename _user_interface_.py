@@ -993,12 +993,6 @@ def run_pipeline_controller(cfg):
 
 
 def render_running_status(cfg):
-
-    if st.session_state.pipeline_done:
-        st.session_state.ui_phase = (
-            UI_RESULT if st.session_state.pipeline_result
-            else UI_RESULT_ERROR
-        )
     
 
     # 🔁 Auto-refresh every 1000ms while this view is active
