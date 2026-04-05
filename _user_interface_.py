@@ -991,10 +991,13 @@ def run_pipeline_controller(cfg):
 
     try:
         result = run_pipeline(cfg, logger=logger)
+        print("✅ PIPELINE PUT SUCCESS")
         PIPELINE_QUEUE.put(("success", result))
+    
+    except BaseException as e:
+            print("❌ PIPELINE PUT ERROR:", repr(e))
+            PIPELINE_QUEUE.put(("error", f"{type(e).__name
 
-    except (Exception, SystemExit) as e:
-        PIPELINE_QUEUE.put(("error", str(e)))
 
 
 def render_running_status(cfg):
@@ -1080,14 +1083,6 @@ def render_running_status(cfg):
 
     except queue.Empty:
         pass
-
-    
-    # Optional safety net
-    thread = st.session_state.get("pipeline_thread")
-    if thread and not thread.is_alive() and not st.session_state.pipeline_done:
-        st.session_state.pipeline_error = "Pipeline finished but no result was returned."
-        st.session_state.ui_phase = UI_RESULT_ERROR
-        _rerun()
 
 
 def render_results(cfg):
