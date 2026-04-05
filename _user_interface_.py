@@ -864,6 +864,8 @@ def render_run_options(cfg):
                 st.session_state.pipeline_error = None
                 st.session_state.pipeline_result = None
 
+                st.session_state.pipeline_refresh_key = f"pipeline_refresh_{time.time()}"
+
                 t = threading.Thread(
                     target=run_pipeline_controller,
                     args=(cfg,),
@@ -1026,14 +1028,19 @@ def render_running_status(cfg):
     #   - UI phase is RUNNING
     #   - AND we do NOT yet have a result or error
     # ------------------------------------------------------------------
+    
     should_refresh = (
         st.session_state.ui_phase == UI_RUNNING
         and st.session_state.pipeline_result is None
         and st.session_state.pipeline_error is None
     )
 
-    if should_refresh:
-        st_autorefresh(interval=1000, key="pipeline_refresh")
+    if should_refresh and st.session_state.get("pipeline_refresh_key"):
+        st_autorefresh(
+            interval=1000,
+            key=st.session_state.pipeline_refresh_key
+        )
+
 
     # ------------------------------------------------------------------
     # Create the "Running…" UI ONCE
@@ -1073,21 +1080,25 @@ def render_running_status(cfg):
     # ------------------------------------------------------------------
     # Track thread completion (NOT result availability)
     # ------------------------------------------------------------------
-    # ✅ ALWAYS try to consume queue first
     try:
         status, payload = PIPELINE_QUEUE.get_nowait()
+
         if status == "success":
             st.session_state.pipeline_result = payload
             st.session_state.ui_phase = UI_RESULT
         else:
-            st.session_state.pipeline_error = payload
+            st.session_state.run_error = payload
             st.session_state.ui_phase = UI_RESULT_ERROR
 
-        # Tear down RUNNING state
-        st.session_state.pipeline_done = True
+        # ------------------------------------------------------------------
+        # HARD STOP autorefresh + clean teardown
+        # ------------------------------------------------------------------
+        st.session_state.pipeline_refresh_key = None
         st.session_state.pipeline_thread_started = False
+        st.session_state.pipeline_done = True
         st.session_state.running_ui_initialized = False
         st.session_state._run_start_time = None
+
         _rerun()
 
     except queue.Empty:
