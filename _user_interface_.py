@@ -1057,11 +1057,11 @@ def render_running_status(cfg):
                     st.session_state.ui_phase = UI_RESULT_ERROR
             
             except queue.Empty:
-                # ✅ Pipeline already handled on a previous rerun
-                if st.session_state.pipeline_result:
+                # Trust the thread controller
+                if st.session_state.pipeline_result is not None:
                     st.session_state.ui_phase = UI_RESULT
                 else:
-                    st.session_state.run_error = "Pipeline finished but produced no result."
+                    st.session_state.run_error = "Pipeline ended without returning a result object."
                     st.session_state.ui_phase = UI_RESULT_ERROR
 
             _rerun()
