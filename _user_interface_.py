@@ -990,13 +990,22 @@ def run_pipeline_controller(cfg):
     )
 
     try:
+        print("🟢 PIPELINE THREAD STARTED")
+
         result = run_pipeline(cfg, logger=logger)
-        print("✅ PIPELINE PUT SUCCESS")
+
+        # ---- DIAGNOSTIC ----
+        print("✅ PIPELINE PUT SUCCESS:", type(result))
         PIPELINE_QUEUE.put(("success", result))
-    
+
     except BaseException as e:
-            print("❌ PIPELINE PUT ERROR:", repr(e))
-            PIPELINE_QUEUE.put(("error", f"{type(e).__name
+        # ---- DIAGNOSTIC ----
+        print("❌ PIPELINE PUT ERROR:", repr(e))
+        PIPELINE_QUEUE.put(("error", f"{type(e).__name__}: {e}"))
+
+    finally:
+        print("🔚 PIPELINE THREAD EXITING")
+
 
 
 
