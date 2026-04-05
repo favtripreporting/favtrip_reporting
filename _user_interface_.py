@@ -986,13 +986,7 @@ def run_pipeline_controller(cfg):
     )
     try:
         result = run_pipeline(cfg, logger=logger)
-        st.session_state.pipeline_result = result
-        st.session_state.pipeline_error = None
-    except Exception as e:
-        st.session_state.pipeline_error = str(e)
-        st.session_state.pipeline_result = None
-    finally:
-        st.session_state.pipeline_done = True
+       
 
 
 
@@ -1056,13 +1050,10 @@ def render_running_status(cfg):
                     st.session_state.run_error = payload
                     st.session_state.ui_phase = UI_RESULT_ERROR
             
-            except queue.Empty:
-                # Trust the thread controller
-                if st.session_state.pipeline_result is not None:
-                    st.session_state.ui_phase = UI_RESULT
-                else:
-                    st.session_state.run_error = "Pipeline ended without returning a result object."
-                    st.session_state.ui_phase = UI_RESULT_ERROR
+            except queue.Empty:                
+                st.session_state.run_error = "Pipeline ended without returning a result."
+                st.session_state.ui_phase = UI_RESULT_ERROR
+
 
             _rerun()
 
