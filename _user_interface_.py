@@ -96,6 +96,7 @@ from core_functional_modules.config import Config
 from core_functional_modules.logger import StatusLogger
 from core_functional_modules.pipeline import run_pipeline
 from core_functional_modules.drive_utils import upload_to_drive, get_or_create_subfolder
+from core_functional_modules.pipeline_bus import get_pipeline_queue
 
 
 # =========================
@@ -105,8 +106,6 @@ from core_functional_modules.drive_utils import upload_to_drive, get_or_create_s
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 err = None
-
-PIPELINE_QUEUE = queue.Queue()
 
 UI_UPLOAD  = "UPLOAD"
 UI_READY   = "READY"
@@ -1023,41 +1022,16 @@ def run_pipeline_controller(cfg, run_id):
     )
 
     try:
-        # --- Execute the pipeline synchronously ---
         result = run_pipeline(cfg, logger=logger)
-
-        # --- Success handoff (edge-triggered) ---
-        PIPELINE_QUEUE.put(
-            (
-                run_id,
-                PIPE_STATUS_DONE,
-                result,
-            )
+        get_pipeline_queue().put(
+            (run_id, PIPE_STATUS_DONE, result)
         )
-
-        logger.info(
-            f"Pipeline returned result of type={type(result)}, value={repr(result)[:500]}"
-        )
-
     except BaseException as e:
-        # Catch BaseException intentionally:
-        # - ensures KeyboardInterrupt / SystemExit do not strand the UI
-        # - turns "random crash" into a clean UI failure
-
-        PIPELINE_QUEUE.put(
-            (
-                run_id,
-                PIPE_STATUS_ERROR,
-                f"{type(e).__name__}: {e}",
-            )
+        get_pipeline_queue().put(
+            (run_id, PIPE_STATUS_ERROR, str(e))
         )
-
     finally:
-        # Optional but recommended: flush / close logger
-        try:
-            logger.close()
-        except Exception:
-            pass
+        logger.close()
 
 
 def render_running_status(cfg):
@@ -1070,9 +1044,12 @@ def render_running_status(cfg):
     # ------------------------------------------------------------
     # Poll queue FIRST (edge-triggered)
     # ------------------------------------------------------------
+    
+    q = get_pipeline_queue()
+    
     while True:
         try:
-            run_id, status, payload = PIPELINE_QUEUE.get_nowait()
+            run_id, status, payload = q.get_nowait()
         except queue.Empty:
             break
 
