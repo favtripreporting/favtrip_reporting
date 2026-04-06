@@ -82,6 +82,7 @@ import re
 import queue
 import uuid
 import traceback
+import requests
 
 import streamlit as st
 from streamlit.components.v1 import html
