@@ -1130,7 +1130,7 @@ def render_running_status(cfg):
 
 
 def render_results(cfg):
-    result = st.session_state.get("pipeline_result")
+    result = st.session_state.get("pipe_result")
 
     if result is None:
         st.session_state.run_error = "Pipeline finished without a result."        
