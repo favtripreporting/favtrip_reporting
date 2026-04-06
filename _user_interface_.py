@@ -1353,7 +1353,7 @@ def render_sidebar(cfg):
             _rerun()
 
         st.link_button("Add Users to App", "https://console.cloud.google.com/auth/audience?project=favtripdev", width='stretch')
-        st.link_button("Open Google Drive", "https://drive.google.com/drive/u/0/folders/1Wpq1JBQDZSJsxBPi5q4rtZfSjD7ZkU4k", width='stretch')
+        st.link_button("Open Google Drive", "https://drive.google.com/drive/u/6/folders/1fhzbq0r8iugIJb9t-EQOdHGNvlr9gLT5", width='stretch')
         st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
         st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
 
