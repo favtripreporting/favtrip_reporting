@@ -1056,7 +1056,7 @@ def run_pipeline_controller(cfg, run_id):
         # Optional but recommended: flush / close logger
         try:
             logger.close()
-            PIPELINE_QUEUE.put((run_id, "finished", None))
+            PIPELINE_QUEUE.put((run_id, PIPE_STATUS_DONE, None))
         except Exception:
             pass
 
