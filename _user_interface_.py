@@ -301,9 +301,21 @@ def init_pipeline_state():
     st.session_state.setdefault("pipe_run_id", None)
 
 def reset_pipeline_state():
+    # Thread control
     st.session_state.pipeline_thread_started = False
     st.session_state.pipeline_done = False
     st.session_state.pipeline_error = None
+    st.session_state.pipeline_thread = None
+
+    # Pipeline result & lifecycle
+    st.session_state.pipe_status = PIPE_STATUS_IDLE
+    st.session_state.pipe_finished = False
+    st.session_state.pipe_result = None
+    st.session_state.pipe_error = None
+    st.session_state.pipe_run_id = None
+
+    # Timer
+    st.session_state._run_start_time = None
 
 
 def start_run():
