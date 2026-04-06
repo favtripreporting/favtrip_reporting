@@ -1225,20 +1225,21 @@ def render_sidebar(cfg):
         st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
         st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
 
-        st.checkbox(
-            "Offer full log download",
-            key="offer_log_download",
-            help="If enabled, a 'Download last_run.log' button appears when a run finishes."
-        )
-
-
-        st.download_button(
-            "⬇️ Download full log (last_run.log)",
-            st.session_state["last_run_log"],
-            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
-            mime="text/plain",
-            width='stretch'
+        if 1==2:
+            st.checkbox(
+                "Offer full log download",
+                key="offer_log_download",
+                help="If enabled, a 'Download last_run.log' button appears when a run finishes."
             )
+
+        if "last_run_log" in st.session_state:
+            st.download_button(
+                    "⬇️ Download full log (last_run.log)",
+                    st.session_state["last_run_log"],
+                    file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+                    mime="text/plain",
+                    width='stretch'
+                    )
 
         # =============================================================
         # DEV-ONLY: Push DEV Defaults → PROD Defaults
