@@ -1109,7 +1109,7 @@ def render_running_status(cfg):
             interval=1000,
             key=f"pipeline_tick_{st.session_state.pipe_run_id}",
         )
-        return
+        
 
     if status == "done":
         st.session_state.pop("_run_start_time", None)
@@ -1120,6 +1120,13 @@ def render_running_status(cfg):
         st.session_state.pop("_run_start_time", None)
         st.session_state.ui_phase = UI_RESULT_ERROR
         st.rerun()
+
+    if st.session_state.pipeline_thread and not st.session_state.pipeline_thread.is_alive():
+        if st.session_state.pipe_status == "running":
+            st.session_state.pipe_status = "error"
+            st.session_state.pipe_error = "Pipeline finished, but no result was received."
+            st.session_state.ui_phase = UI_RESULT_ERROR
+            st.rerun()
 
 
 def render_results(cfg):
