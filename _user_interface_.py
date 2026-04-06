@@ -260,8 +260,6 @@ def init_thread_state():
         st.session_state.pipeline_done = False
     if "pipeline_error" not in st.session_state:
         st.session_state.pipeline_error = None
-    if "pipeline_result" not in st.session_state:
-        st.session_state.pipeline_result = None
     if "pipeline_thread" not in st.session_state:
         st.session_state.pipeline_thread = None
 
@@ -284,7 +282,7 @@ def start_run():
     st.session_state.pipeline_thread_started = True
     st.session_state.pipeline_done = False
     st.session_state.pipeline_error = None
-    st.session_state.pipeline_result = None
+
 
     st.session_state.pipeline_refresh_key = f"pipeline_refresh_{time.time()}"
 
@@ -1128,14 +1126,21 @@ def render_running_status(cfg):
             st.session_state.ui_phase = UI_RESULT_ERROR
             st.rerun()
 
+    if status == "done" and st.session_state.ui_phase != UI_RESULT:
+        st.session_state.ui_phase = UI_RESULT
+        _rerun()
+
 
 def render_results(cfg):
     result = st.session_state.get("pipe_result")
 
-    if result is None:
-        st.session_state.run_error = "Pipeline finished without a result."        
-        st.session_state.ui_phase = UI_RESULT_ERROR
-        _rerun()
+    
+    if not isinstance(result, object):
+            # Defensive fallback: do NOT flip to error automatically
+            st.error(
+                "Run completed, but the result object could not be loaded. "
+                "Please download the log for details."
+            )
 
 
     with st.container(border=True):
