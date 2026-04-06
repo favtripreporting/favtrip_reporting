@@ -1300,7 +1300,7 @@ def render_result_error(cfg):
         st.subheader("❌ Run Failed")
         st.error("The pipeline did not complete successfully.")
         
-        st.code(
+        st.warning(
             st.session_state.get("pipe_error")
             or st.session_state.get("run_error")
             or "Unknown error"
@@ -1337,7 +1337,7 @@ def render_upload_error(cfg):
             "Please upload **1 or 2 full weeks of data only**."
         )
 
-        st.code(st.session_state.get("upload_error", ""))
+        st.warning(st.session_state.get("upload_error", ""))
 
         if st.button("🔁 Upload different files", type="primary"):
             st.session_state.pop("upload_error", None)
