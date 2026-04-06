@@ -1148,7 +1148,13 @@ def render_results(cfg):
             f"{(result.elapsed_seconds%3600)//60:02d}:"
             f"{result.elapsed_seconds%60:02d}"
         )
-            
+
+        if getattr(result, "manager_pdf_link", None):
+            st.success(f"Manager PDF: {result.manager_pdf_link}")
+        if getattr(result, "full_order_link", None):
+            st.success(f"Full Order Sheet: {result.full_order_link}")
+
+    
         if os.path.exists("last_run.log"):
             with open("last_run.log", "rb") as f:
                 st.session_state["last_run_log"] = f.read()
