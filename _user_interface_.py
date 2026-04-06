@@ -1335,6 +1335,11 @@ def render_result_error(cfg):
             st.session_state.pop("run_error", None)
             st.session_state.ui_phase = UI_UPLOAD
             _rerun()
+
+    if os.path.exists("last_run.log") and "last_run_log" not in st.session_state:
+        with open("last_run.log", "rb") as f:
+            st.session_state["last_run_log"] = f.read()
+        st.session_state.setdefault("last_run_timestamp", "error")
     
     if "last_run_log" in st.session_state:
         st.download_button(
