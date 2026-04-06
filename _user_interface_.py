@@ -1354,12 +1354,13 @@ def render_result_error(cfg):
 
         else:
             st.error("Unknown error occurred.")
-
-
+        
         if st.button("🔁 Upload different files", type="primary"):
             st.session_state.pop("run_error", None)
-            st.session_state.ui_phase = UI_UPLOAD
+            reset_to_upload()
+            reset_pipeline_state()
             _rerun()
+
 
     if os.path.exists("last_run.log") and "last_run_log" not in st.session_state:
         with open("last_run.log", "rb") as f:
@@ -1389,9 +1390,11 @@ def render_upload_error(cfg):
         st.warning(st.session_state.get("upload_error", ""))
 
         if st.button("🔁 Upload different files", type="primary"):
-            st.session_state.pop("upload_error", None)
-            st.session_state.ui_phase = UI_UPLOAD
-            _rerun()  
+            st.session_state.pop("run_error", None)
+            reset_to_upload()
+            reset_pipeline_state()
+            _rerun()
+
 
 def render_app(cfg):
     phase = st.session_state.ui_phase
