@@ -1507,7 +1507,7 @@ def render_sidebar(cfg):
 
         @st.dialog("⚠️ Confirm Code Push to Production")
         def confirm_merge_dev_to_main():
-            base = 'test-main'
+            base = 'dev'
             target = 'main'
             st.markdown(
                 f"""
