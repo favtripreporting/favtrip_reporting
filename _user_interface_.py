@@ -879,6 +879,7 @@ def render_run_options(cfg):
 
             # Start pipeline in background (one time)
             if not st.session_state.pipeline_thread_started:
+                st.session_state.pipe_status = PIPE_STATUS_RUNNING
                 st.session_state.pipeline_thread_started = True
                 st.session_state.pipeline_done = False
                 st.session_state.pipeline_error = None
