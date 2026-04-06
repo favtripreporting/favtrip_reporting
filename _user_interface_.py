@@ -1367,12 +1367,11 @@ def render_app(cfg):
     elif phase == UI_RESULT_ERROR:
         render_sidebar(cfg)
         render_result_error(cfg)
-        render_upload_different_button(cfg)
 
     elif phase == UI_UPLOAD_ERROR:
         render_sidebar(cfg)
         render_upload_error(cfg)
-        render_upload_different_button(cfg)
+
         
 
 
