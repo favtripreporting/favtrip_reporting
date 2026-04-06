@@ -1071,7 +1071,7 @@ def render_running_status(cfg):
             st.session_state.ui_phase = UI_RESULT
         elif st.session_state.pipe_status == PIPE_STATUS_ERROR:
             st.session_state.ui_phase = UI_RESULT_ERROR
-        return
+        _rerun()
 
     # ------------------------------------------------------------
     # ALWAYS render something
