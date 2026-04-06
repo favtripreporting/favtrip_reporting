@@ -102,8 +102,14 @@ from .gmail_utils import send_email, email_manager_report, email_order_report, e
 CSV_MIME = "text/csv"
 
 
-def clean_tag(s: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", s.strip()).strip("-") or "UNKNOWN"
+def clean_tag(s: str | None) -> str | None:
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")
+
 
 
 import requests
@@ -1156,8 +1162,13 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.DEFAULT_ORDER_RECIPIENTS
         )
 
-        email_tag_parts = [tag, sub_tag]
-        email_tag = ' - '.join(email_tag_parts)
+        
+        email_tag_parts = [tag]
+        if sub_tag:
+            email_tag_parts.append(sub_tag)
+
+        email_tag = " - ".join(email_tag_parts)
+
 
 
         email_order_report(
