@@ -1147,13 +1147,6 @@ def render_running_status(cfg):
         st.session_state.ui_phase = UI_RESULT_ERROR
         st.rerun()
 
-    if st.session_state.pipeline_thread and not st.session_state.pipeline_thread.is_alive():
-        if st.session_state.pipe_status == "running":
-            st.session_state.pipe_status = "error"
-            st.session_state.pipe_error = "Pipeline finished, but no result was received."
-            st.session_state.ui_phase = UI_RESULT_ERROR
-            st.rerun()
-
     if status == "done" and st.session_state.ui_phase != UI_RESULT:
         st.session_state.ui_phase = UI_RESULT
         _rerun()
