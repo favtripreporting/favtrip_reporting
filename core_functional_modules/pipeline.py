@@ -379,6 +379,52 @@ def filter_master_csv_to_ran(master_csv_bytes, cfg):
 
     return output.getvalue().encode("utf-8-sig")
 
+def sort_master_csv(csv_bytes: bytes) -> bytes:
+    df = pandas.read_csv(io.BytesIO(csv_bytes))
+
+    # Normalize column names
+    cols = {c.lower(): c for c in df.columns}
+
+    report_col = cols.get("report_key")
+    sub_col = cols.get("sub_report_key")
+    cases_col = cols.get("cases to order")
+
+    if not report_col:
+        raise RuntimeError("Report_Key column not found for sorting")
+
+    # Fill missing sub-keys so they sort last
+    if sub_col:
+        df[sub_col] = df[sub_col].fillna("ZZZ")
+
+    # Ensure numeric sorting for cases
+    if cases_col:
+        df[cases_col] = pandas.to_numeric(df[cases_col], errors="coerce").fillna(0)
+
+    sort_cols = [report_col]
+    sort_ascending = [True]
+
+    if sub_col:
+        sort_cols.append(sub_col)
+        sort_ascending.append(True)
+
+    if cases_col:
+        sort_cols.append(cases_col)
+        sort_ascending.append(False)  # DESCENDING
+
+    df = df.sort_values(
+        by=sort_cols,
+        ascending=sort_ascending,
+        kind="mergesort"  # stable sort
+    )
+
+    # Restore blanks if we filled them
+    if sub_col:
+        df[sub_col] = df[sub_col].replace("ZZZ", "")
+
+    out = io.StringIO()
+    df.to_csv(out, index=False)
+    return out.getvalue().encode("utf-8-sig")
+
 
 @dataclass
 class RunResult:
@@ -740,6 +786,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info("Exporting Master Order (CSV)…")
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
     master_csv_bytes = filter_master_csv_to_ran(master_csv_bytes, cfg)
+    master_csv_bytes = sort_master_csv(master_csv_bytes)
 
     # Step 6: Error Report CSV, Upload, Export PDF
     if logger:
