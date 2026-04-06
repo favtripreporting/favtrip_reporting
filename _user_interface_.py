@@ -1047,23 +1047,23 @@ def run_pipeline_controller(cfg, run_id):
 
 
 def render_running_status(cfg):
-    
-    # ------------------------------------------------------------
-    # Defensive defaults (blank screen killer)
-    # ------------------------------------------------------------
-    pipe_status = st.session_state.get("pipe_status", "idle")
+    import time
+    import os
+    import queue
+    import streamlit as st
+    from streamlit_autorefresh import st_autorefresh
 
     # ------------------------------------------------------------
     # Poll queue FIRST (edge-triggered)
     # ------------------------------------------------------------
-    def poll_pipeline_queue():
+    while True:
         try:
             run_id, status, payload = PIPELINE_QUEUE.get_nowait()
         except queue.Empty:
-            return False
+            break
 
         if run_id != st.session_state.get("pipe_run_id"):
-            return False
+            continue
 
         if status == "success":
             st.session_state.pipe_result = payload
@@ -1072,34 +1072,22 @@ def render_running_status(cfg):
             st.session_state.pipe_error = payload
             st.session_state.pipe_status = "error"
 
-        return True
-
-    poll_pipeline_queue()
-
     # ------------------------------------------------------------
-    # ALWAYS render something for RUNNING phase
+    # ALWAYS render something
     # ------------------------------------------------------------
     with st.status("Running pipeline…", expanded=True):
 
-        # --------------------------------------------------------
-        # Timer init
-        # --------------------------------------------------------
+        # ----- Bulletproof timer -----
         start_time = st.session_state.get("_run_start_time")
-
         if not isinstance(start_time, (int, float)):
             start_time = time.perf_counter()
             st.session_state._run_start_time = start_time
 
-        elapsed = int(time.perf_counter() - st.session_state._run_start_time)
-        h = elapsed // 3600
-        m = (elapsed % 3600) // 60
-        s = elapsed % 60
-
+        elapsed = int(time.perf_counter() - start_time)
+        h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
         st.markdown(f"**Elapsed:** `{h:02d}:{m:02d}:{s:02d}`")
 
-        # --------------------------------------------------------
-        # Log tail
-        # --------------------------------------------------------
+        # ----- Log tail -----
         if os.path.exists("last_run.log"):
             try:
                 with open("last_run.log", "r", encoding="utf-8") as f:
@@ -1110,21 +1098,28 @@ def render_running_status(cfg):
             st.markdown("*Waiting for logs…*")
 
     # ------------------------------------------------------------
-    # State transitions (AFTER rendering)
+    # LIVE status check (DO NOT CACHE THIS)
     # ------------------------------------------------------------
-    if pipe_status == "running":
-        st_autorefresh(interval=1000, key="pipeline_tick")
+    status = st.session_state.get("pipe_status")
+
+    # ✅ This is what keeps the UI alive
+    if status == "running":
+        st_autorefresh(
+            interval=1000,
+            key=f"pipeline_tick_{st.session_state.pipe_run_id}",
+        )
         return
 
-    if pipe_status == "done":
+    if status == "done":
         st.session_state.pop("_run_start_time", None)
         st.session_state.ui_phase = UI_RESULT
         _rerun()
 
-    if pipe_status == "error":
+    if status == "error":
         st.session_state.pop("_run_start_time", None)
         st.session_state.ui_phase = UI_RESULT_ERROR
-        _rerun()
+        st.rerun()
+
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
