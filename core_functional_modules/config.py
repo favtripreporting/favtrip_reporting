@@ -444,3 +444,16 @@ class Config:
         if env_path is None:
             env_path = Path.cwd() / ".env"
         env_path.write_text(self.to_env(), encoding="utf-8")
+    
+    NON_PERSISTED_FIELDS = {}
+
+    def to_drive_defaults(self) -> dict:
+        """
+        Serialize all public config fields for persistence.
+        """
+        return {
+          k: v
+          for k, v in vars(self).items()
+          if not k.startswith("_") and k not in NON_PERSISTED_FIELDS
+        }
+

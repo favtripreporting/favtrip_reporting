@@ -348,7 +348,140 @@ def _validate_pipeline_result(result):
         and all(hasattr(result, attr) for attr in required_attrs)
     )
 
+def apply_per_run_config(
+    *,
+    cfg,
+    to,
+    cc,
+    error_recipients,
+    use_all,
+    report_keys,
+    include_full,
+    send_full,
+    email_mgr,
+    calc_id,
+    incoming_id,
+    mgr_folder,
+    order_folder,
+    error_folder,
+    user_folder,
+    redirect_port,
+    gid_mgr,
+    gid_order,
+    gid_err,
+    gid_bev_err,
+    loc_sheet,
+    loc_range,
+    update_range,
+    tz,
+    tfmt,
+    output_ttl,
+    failed_input_ttl,
+    user_ttl,
+    use_rollover,
+    start_dow,
+    end_dow,
+    soft_cases_enabled,
+    soft_cases_threshold,
+    BEV_MAPPING_LINK,
+    edited_rows,
+):
+    # ------------------------------------------------------------
+    # Basic email & behavior flags
+    # ------------------------------------------------------------
+    cfg.TO_RECIPIENTS = _split_emails(to)
+    cfg.CC_RECIPIENTS = _split_emails(cc)
+    cfg.ERROR_RECIPIENTS = _split_emails(error_recipients)
 
+    cfg.USE_ALL_REPORT_KEYS = use_all
+    cfg.REPORT_KEY_RUN_LIST = [
+        s.strip().upper()
+        for s in (report_keys or "").split(",")
+        if s.strip()
+    ]
+
+    cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL = bool(include_full)
+    cfg.SEND_SEPARATE_FULL_ORDER_EMAIL = bool(send_full)
+    cfg.EMAIL_MANAGER_REPORT = bool(email_mgr)
+
+    # ------------------------------------------------------------
+    # IDs, folders, sheets
+    # ------------------------------------------------------------
+    cfg.CALC_SPREADSHEET_ID = calc_id
+    cfg.INCOMING_FOLDER_ID = incoming_id
+    cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
+    cfg.ORDER_REPORT_FOLDER_ID = order_folder
+    cfg.ERROR_REPORT_FOLDER_ID = error_folder
+    cfg.USER_FOLDER_ID = user_folder
+    cfg.REDIRECT_PORT = int(redirect_port)
+
+    cfg.GID_MANAGER_PDF = gid_mgr
+    cfg.GID_ORDER_CSV = gid_order
+    cfg.GID_ERROR_REPORT = gid_err
+    cfg.GID_BEV_ERRORS = gid_bev_err
+
+    cfg.LOCATION_SHEET_TITLE = loc_sheet
+    cfg.LOCATION_NAMED_RANGE = loc_range
+    cfg.TEMPLATE_UPDATE_RANGE = update_range
+
+    cfg.TIMESTAMP_TZ = tz
+    cfg.TIMESTAMP_FMT = tfmt
+
+    # ------------------------------------------------------------
+    # Lifecycle / TTL
+    # ------------------------------------------------------------
+    cfg.OUTPUT_TIME_TO_LIFE = int(output_ttl)
+    cfg.FAILED_INPUT_TIME_TO_LIFE = int(failed_input_ttl)
+    cfg.USER_TIME_TO_LIFE = int(user_ttl)
+
+    # ------------------------------------------------------------
+    # Date & integrity controls
+    # ------------------------------------------------------------
+    cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
+    cfg.START_DAY_OF_WEEK = start_dow
+    cfg.END_DAY_OF_WEEK = end_dow
+
+    # ------------------------------------------------------------
+    # Soft cases alerting
+    # ------------------------------------------------------------
+    cfg.SOFT_CASES_ALERT_ENABLED = bool(soft_cases_enabled)
+    cfg.SOFT_CASES_ALERT_THRESHOLD = int(soft_cases_threshold)
+
+    # ------------------------------------------------------------
+    # External links
+    # ------------------------------------------------------------
+    cfg.BEV_MAPPING_LINK = BEV_MAPPING_LINK
+
+    # ------------------------------------------------------------
+    # Per‑report‑key recipients
+    # ------------------------------------------------------------
+    rk_map: dict[tuple[str | None, str | None, str | None], list[str]] = {}
+
+    for r in edited_rows or []:
+        store = (r.get("Store (optional)") or "").strip().upper() or None
+        key = (r.get("Report Key (optional)") or "").strip().upper() or None
+        sub_key = (r.get("Sub-Report Key (optional)") or "").strip().upper() or None
+
+        emails = [
+            e.strip()
+            for e in (r.get("Emails (comma)") or "").split(",")
+            if e.strip()
+        ]
+
+        if not emails or not (store or key or sub_key):
+            continue
+
+        rk_map[
+            (
+                clean_tag(store) if store else None,
+                clean_tag(key) if key else None,
+                clean_tag(sub_key) if sub_key else None,
+            )
+        ] = emails
+
+    cfg.REPORT_KEY_RECIPIENTS = rk_map
+
+    return rk_map
 
 # =========================
 # OAuth (Web / PKCE)
@@ -868,78 +1001,132 @@ def render_run_options(cfg):
                         help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
                     )
 
+                
+        save_defaults_clicked = st.button("💾 Save as defaults", help="Persist current settings for future sessions")
 
-        save_drive_defaults = st.checkbox("Update defaults", value=False)
 
         # ----- Submission handling -----
 
+        if save_defaults_clicked:
+            try:
+                rk_map = apply_per_run_config(
+                    cfg=cfg,
+                    to=to,
+                    cc=cc,
+                    error_recipients=error_recipients,
+                    use_all=use_all,
+                    report_keys=report_keys,
+                    include_full=include_full,
+                    send_full=send_full,
+                    email_mgr=email_mgr,
+                    calc_id=calc_id,
+                    incoming_id=incoming_id,
+                    mgr_folder=mgr_folder,
+                    order_folder=order_folder,
+                    error_folder=error_folder,
+                    user_folder=user_folder,
+                    redirect_port=redirect_port,
+                    gid_mgr=gid_mgr,
+                    gid_order=gid_order,
+                    gid_err=gid_err,
+                    gid_bev_err=gid_bev_err,
+                    loc_sheet=loc_sheet,
+                    loc_range=loc_range,
+                    update_range=update_range,
+                    tz=tz,
+                    tfmt=tfmt,
+                    output_ttl=output_ttl,
+                    failed_input_ttl=failed_input_ttl,
+                    user_ttl=user_ttl,
+                    use_rollover=use_rollover,
+                    start_dow=start_dow,
+                    end_dow=end_dow,
+                    soft_cases_enabled=soft_cases_enabled,
+                    soft_cases_threshold=soft_cases_threshold,
+                    BEV_MAPPING_LINK=BEV_MAPPING_LINK,
+                    edited_rows=edited_rows,
+                )
+
+                # Ensure we have a user token first
+                creds = load_valid_token(cfg.SCOPES)
+                if not creds:
+                    st.error("Not authenticated. Please complete Google sign‑in first (top of page).")
+                else:
+
+                    # Drive service
+                    _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+
+                    # What we persist
+                    drive_defaults = cfg.to_drive_defaults()
+
+                    DEV_ENVIRONMENT = st.secrets.get("DEV_ENVIRONMENT", False)
+                    DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
+                    CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
+
+                    # Decide where to SAVE
+                    if DEV_ENVIRONMENT:
+                        save_target_id = DEV_CONFIG_FILE_ID or None
+                    else:
+                        save_target_id = CONFIG_FILE_ID or None
+
+                    new_id = save_config_to_drive(
+                        drive,
+                        drive_defaults,
+                        file_id=save_target_id
+                    )
+
+                    # DEV auto-bootstrap case
+                    if DEV_ENVIRONMENT and not DEV_CONFIG_FILE_ID:
+                        st.success("✅ Created new DEV config file.")
+                        st.info(
+                            "Add this to Streamlit secrets as DEV_CONFIG_FILE_ID:\n\n"
+                            f"`{new_id}`"
+                        )
+                    else:
+                        st.success(f"✅ Defaults saved (file id: {new_id})")
+
+            except Exception as e:
+                st.error(f"Failed to save defaults to Drive: {e}")
+
         if submitted:
             # Apply per-run config
-            cfg.TO_RECIPIENTS = _split_emails(to)
-            cfg.CC_RECIPIENTS = _split_emails(cc)
-            cfg.ERROR_RECIPIENTS = _split_emails(error_recipients)
-            cfg.USE_ALL_REPORT_KEYS = use_all
-            cfg.REPORT_KEY_RUN_LIST = [s.strip().upper() for s in (report_keys or "").split(",") if s.strip()]
-
-            cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL = include_full
-            cfg.SEND_SEPARATE_FULL_ORDER_EMAIL = send_full
-            cfg.EMAIL_MANAGER_REPORT = bool(email_mgr)
-
-            cfg.CALC_SPREADSHEET_ID = calc_id
-            cfg.INCOMING_FOLDER_ID = incoming_id
-            cfg.MANAGER_REPORT_FOLDER_ID = mgr_folder
-            cfg.ORDER_REPORT_FOLDER_ID = order_folder
-            cfg.ERROR_REPORT_FOLDER_ID = error_folder
-            cfg.USER_FOLDER_ID = user_folder
-            cfg.REDIRECT_PORT = int(redirect_port)
-
-            cfg.GID_MANAGER_PDF = gid_mgr
-            cfg.GID_ORDER_CSV = gid_order
-            cfg.GID_ERROR_REPORT = gid_err
-            cfg.GID_BEV_ERRORS = gid_bev_err
-            cfg.LOCATION_SHEET_TITLE = loc_sheet
-            cfg.LOCATION_NAMED_RANGE = loc_range
-            cfg.TEMPLATE_UPDATE_RANGE = update_range
-            cfg.TIMESTAMP_TZ = tz
-            cfg.TIMESTAMP_FMT = tfmt
-            
-            cfg.OUTPUT_TIME_TO_LIFE = int(output_ttl)
-            cfg.FAILED_INPUT_TIME_TO_LIFE = int(failed_input_ttl)
-            cfg.USER_TIME_TO_LIFE = int(user_ttl)
-
-            cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
-            cfg.START_DAY_OF_WEEK = start_dow
-            cfg.END_DAY_OF_WEEK = end_dow
-
-            cfg.SOFT_CASES_ALERT_ENABLED = bool(soft_cases_enabled)
-            cfg.SOFT_CASES_ALERT_THRESHOLD = int(soft_cases_threshold)
-
-
-            cfg.BEV_MAPPING_LINK = BEV_MAPPING_LINK
-
-
-            # Per-key recipients from editor
-            
-            rk_map = {}
-            rk_preview = []  # optional: for a quick visual confirmation in the UI
-            
-            for r in edited_rows:
-                store = (r.get("Store (optional)") or "").strip().upper() or None
-                key   = (r.get("Report Key (optional)") or "").strip().upper() or None
-                sub_key   = (r.get("Sub-Report Key (optional)") or "").strip().upper() or None
-            
-                emails_raw = (r.get("Emails (comma)") or "").strip()
-                emails = [e.strip() for e in emails_raw.split(",") if e.strip()]
-            
-                store_tag = clean_tag(store) if store else None
-                key_tag = clean_tag(key) if key else None
-                sub_tag = clean_tag(sub_key) if sub_key else None
-            
-                if (store_tag or key_tag or sub_tag) and emails:
-                    # >>> THIS is the part that actually records the mapping
-                    rk_map[(store_tag, key_tag, sub_tag)] = emails
-            
-            cfg.REPORT_KEY_RECIPIENTS = rk_map
+            rk_map = apply_per_run_config(
+                cfg=cfg,
+                to=to,
+                cc=cc,
+                error_recipients=error_recipients,
+                use_all=use_all,
+                report_keys=report_keys,
+                include_full=include_full,
+                send_full=send_full,
+                email_mgr=email_mgr,
+                calc_id=calc_id,
+                incoming_id=incoming_id,
+                mgr_folder=mgr_folder,
+                order_folder=order_folder,
+                error_folder=error_folder,
+                user_folder=user_folder,
+                redirect_port=redirect_port,
+                gid_mgr=gid_mgr,
+                gid_order=gid_order,
+                gid_err=gid_err,
+                gid_bev_err=gid_bev_err,
+                loc_sheet=loc_sheet,
+                loc_range=loc_range,
+                update_range=update_range,
+                tz=tz,
+                tfmt=tfmt,
+                output_ttl=output_ttl,
+                failed_input_ttl=failed_input_ttl,
+                user_ttl=user_ttl,
+                use_rollover=use_rollover,
+                start_dow=start_dow,
+                end_dow=end_dow,
+                soft_cases_enabled=soft_cases_enabled,
+                soft_cases_threshold=soft_cases_threshold,
+                BEV_MAPPING_LINK=BEV_MAPPING_LINK,
+                edited_rows=edited_rows,
+            )
 
             # --- ADD: warnings before kicking off the run ---
             if not cfg.USE_ALL_REPORT_KEYS and not cfg.REPORT_KEY_RUN_LIST:
@@ -965,6 +1152,7 @@ def render_run_options(cfg):
                 st.session_state.ui_phase = UI_RESULT_ERROR
                 _rerun()
 
+            
             # All validation must already be done
             st.session_state._run_start_time = None
             st.session_state.ui_phase = UI_RUNNING
@@ -983,113 +1171,6 @@ def render_run_options(cfg):
 
             _rerun()
             # --- END ADD ---
-
-
-            # --- Save edited defaults to Drive JSON (optional) ---
-            if save_drive_defaults:
-                try:
-                    # Ensure we have a user token first
-                    creds = load_valid_token(cfg.SCOPES)
-                    if not creds:
-                        st.error("Not authenticated. Please complete Google sign‑in first (top of page).")
-                    else:
-                        # Drive service
-                        _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-
-                        # What we persist
-                        drive_defaults = {
-                            "CALC_SPREADSHEET_ID": cfg.CALC_SPREADSHEET_ID,
-                            "INCOMING_FOLDER_ID": cfg.INCOMING_FOLDER_ID,
-                            "MANAGER_REPORT_FOLDER_ID": cfg.MANAGER_REPORT_FOLDER_ID,
-                            "ORDER_REPORT_FOLDER_ID": cfg.ORDER_REPORT_FOLDER_ID,
-                            "ERROR_REPORT_FOLDER_ID": cfg.ERROR_REPORT_FOLDER_ID,
-                            "USER_FOLDER_ID": cfg.USER_FOLDER_ID,
-
-                            "GID_MANAGER_PDF": cfg.GID_MANAGER_PDF,
-                            "GID_ORDER_CSV": cfg.GID_ORDER_CSV,
-                            "GID_ERROR_REPORT": cfg.GID_ERROR_REPORT,
-                            "GID_BEV_ERRORS": cfg.GID_BEV_ERRORS,
-
-                            "LOCATION_SHEET_TITLE": cfg.LOCATION_SHEET_TITLE,
-                            "LOCATION_NAMED_RANGE": cfg.LOCATION_NAMED_RANGE,
-                            "TEMPLATE_UPDATE_RANGE": cfg.TEMPLATE_UPDATE_RANGE,
-
-                            "TIMESTAMP_TZ": cfg.TIMESTAMP_TZ,
-                            "TIMESTAMP_FMT": cfg.TIMESTAMP_FMT,
-
-                            "OUTPUT_TIME_TO_LIFE": cfg.OUTPUT_TIME_TO_LIFE,
-                            "FAILED_INPUT_TIME_TO_LIFE": cfg.FAILED_INPUT_TIME_TO_LIFE,
-                            "USER_TIME_TO_LIFE": cfg.USER_TIME_TO_LIFE,
-
-                            "TO_RECIPIENTS": cfg.TO_RECIPIENTS,   # lists are fine; JSON keeps types
-                            "CC_RECIPIENTS": cfg.CC_RECIPIENTS,
-                            "ERROR_RECIPIENTS": cfg.ERROR_RECIPIENTS,
-
-                            "USE_ALL_REPORT_KEYS": cfg.USE_ALL_REPORT_KEYS,
-                            "REPORT_KEY_RUN_LIST": cfg.REPORT_KEY_RUN_LIST,
-
-                            "REPORT_KEY_RECIPIENTS": cfg.REPORT_KEY_RECIPIENTS,
-
-                            "DEFAULT_ORDER_RECIPIENTS": cfg.DEFAULT_ORDER_RECIPIENTS,
-
-                            "INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL": cfg.INCLUDE_FULL_ORDER_IN_EACH_REPORT_KEY_EMAIL,
-                            "SEND_SEPARATE_FULL_ORDER_EMAIL": cfg.SEND_SEPARATE_FULL_ORDER_EMAIL,
-                            "EMAIL_MANAGER_REPORT": cfg.EMAIL_MANAGER_REPORT,
-
-                            "USE_AUTO_ROLLOVER_IF_ONE_WEEK" : cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
-                            "START_DAY_OF_WEEK" : cfg.START_DAY_OF_WEEK,
-                            "END_DAY_OF_WEEK" : cfg.END_DAY_OF_WEEK,
-
-                            "BEV_MAPPING_LINK" : cfg.BEV_MAPPING_LINK
-                        }
-
-                        DEV_ENVIRONMENT = st.secrets.get("DEV_ENVIRONMENT", False)
-                        DEV_CONFIG_FILE_ID = (st.secrets.get("DEV_CONFIG_FILE_ID", "") or "").strip()
-                        CONFIG_FILE_ID = (st.secrets.get("CONFIG_FILE_ID", "") or "").strip()
-
-                        # Decide where to SAVE
-                        if DEV_ENVIRONMENT:
-                            save_target_id = DEV_CONFIG_FILE_ID or None
-                        else:
-                            save_target_id = CONFIG_FILE_ID or None
-
-                        new_id = save_config_to_drive(
-                            drive,
-                            drive_defaults,
-                            file_id=save_target_id
-                        )
-
-                        # DEV auto-bootstrap case
-                        if DEV_ENVIRONMENT and not DEV_CONFIG_FILE_ID:
-                            st.success("✅ Created new DEV config file.")
-                            st.info(
-                                "Add this to Streamlit secrets as DEV_CONFIG_FILE_ID:\n\n"
-                                f"`{new_id}`"
-                            )
-                        else:
-                            st.success(f"✅ Defaults saved (file id: {new_id})")
-
-                except Exception as e:
-                    st.error(f"Failed to save defaults to Drive: {e}")
-
-
-            # If user checked "Force Google re-auth for this run", kick them into auth gating first.
-            """
-            if cfg.FORCE_REAUTH:
-                clear_token()
-                try:
-                    flow, url = start_web_oauth(cfg.SCOPES, cfg.REDIRECT_PORT)
-                    st.session_state.oauth_flow = flow
-                    st.session_state.oauth_url = url
-                    st.session_state.auth_required = True
-                    st.info("Re-auth required for this run. Open the URL shown in the Authentication panel.")
-                    _rerun()
-                except Exception as e:
-                    st.error(f"Failed to start OAuth: {e}")
-            else:
-                st.session_state.ui_phase = UI_RUNNING
-                _rerun()
-            """
 
 def run_pipeline_controller(cfg, run_id):
 
