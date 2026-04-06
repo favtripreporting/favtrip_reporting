@@ -347,6 +347,39 @@ def should_run(cfg, report_key, sub_key):
     return report_key in allowed
 
 
+def filter_master_csv_to_ran(master_csv_bytes, cfg):
+    text = master_csv_bytes.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+
+    if not rows:
+        return master_csv_bytes  # nothing to do
+
+    headers = [h.strip() for h in rows[0]]
+    lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+
+    report_idx = lower_idx.get("report_key")
+    sub_idx = lower_idx.get("sub_report_key")
+
+    if report_idx is None:
+        raise RuntimeError("Master CSV missing Report_Key column")
+
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(headers)
+
+    for r in rows[1:]:
+        key = (r[report_idx] if report_idx < len(r) else "").strip().upper()
+        sub = None
+        if sub_idx is not None:
+            sub = (r[sub_idx] if sub_idx < len(r) else "").strip().upper() or None
+
+        if should_run(cfg, key, sub):
+            writer.writerow(r)
+
+    return output.getvalue().encode("utf-8-sig")
+
+
 @dataclass
 class RunResult:
     ok: bool
@@ -364,6 +397,12 @@ class RunResult:
 def run_pipeline(cfg: Config, logger=None) -> RunResult:
     import time
     start = time.perf_counter()
+
+    
+    ran_report_keys = set()
+    ran_sub_report_keys = set()
+    ran_reports = {}
+
 
     if logger:
         logger.info("Authorizing with Google APIs…")
@@ -700,6 +739,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info("Exporting Master Order (CSV)…")
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
+    master_csv_bytes = filter_master_csv_to_ran(master_csv_bytes, cfg)
 
     # Step 6: Error Report CSV, Upload, Export PDF
     if logger:
@@ -777,7 +817,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info(f"Uploaded filtered Error Sheet: {err_link}")
 
-        # Step 5.1: Send Error Report if Needed
+        # Step 6.1: Send Error Report if Needed
 
         to_err = _fallback_recipients(
             "ERROR REPORT",
@@ -810,7 +850,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
 
 
-    # Step 6: Full order upload (CSV) and export (PDF)
+    # Step 7: Full order upload (CSV) and export (PDF)
     full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
@@ -822,7 +862,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
-    # Step 7: Create per-report-key outputs (CSV) and email
+    # Step 8: Create per-report-key outputs (CSV) and email
 
     # --- Parse the master CSV into rows of dicts ---
     
@@ -967,7 +1007,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info(f"Emailed {store} - {email_tag} to {recipients}")
     
-    # Step 8: Unassigned Beverages Report (Soft Error)
+    # Step 9: Unassigned Beverages Report (Soft Error)
     try:
         # Must have successfully sent a BEV order
         if not bev_order_sent:
@@ -1077,7 +1117,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.warn(f"Unassigned Beverages Report failed (soft): {e}")
         
-    # Step 9: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
+    # Step 10: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
     if getattr(cfg, "EMAIL_MANAGER_REPORT", True):
         to_list = _fallback_recipients("Manager Report (TO_RECIPIENTS)", cfg.TO_RECIPIENTS)
         cc_list = _clean_emails(cfg.CC_RECIPIENTS)
@@ -1093,7 +1133,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
 
-    # Step 10: Send Full Order if needed
+    # Step 11: Send Full Order if needed
     if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
         to_full = _fallback_recipients(
             "FULL ORDER",
@@ -1124,7 +1164,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info("Separate full order email disabled")
 
-    # Step 11: File Cleanup
+    # Step 12: File Cleanup
 
     try:
         if logger:

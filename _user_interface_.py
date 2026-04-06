@@ -246,12 +246,22 @@ def reset_to_upload():
     st.session_state.sales_selected_name = None
     st.session_state.vendor_selected_name = None
 
-    st.session_state.running_ui_initialized = False
+    st.session_state.reset_generation += 1
 
+    st.session_state.sales_selection_generation = None
+    st.session_state.vendor_selection_generation = None
+
+
+    # 🔑 Increment the upload epoch
+    st.session_state.upload_epoch += 1
+    st.session_state.sales_selected_epoch = None
+    st.session_state.vendor_selected_epoch = None
+
+    st.session_state.running_ui_initialized = False
     st.session_state.uploader_version += 1
     st.session_state.ui_phase = UI_UPLOAD
 
-    
+    # Fully clear uploader widget state
     for k in list(st.session_state.keys()):
         if k.startswith("sales_upload_") or k.startswith("vendor_upload_"):
             st.session_state.pop(k, None)
@@ -295,9 +305,11 @@ def start_run():
 
 
 def _both_uploads_ok():
+    epoch = st.session_state.upload_epoch
+
     return (
-        st.session_state.sales_selected_name is not None
-        and st.session_state.vendor_selected_name is not None
+        st.session_state.sales_selected_epoch == epoch
+        and st.session_state.vendor_selected_epoch == epoch
     )
 
 
@@ -393,6 +405,8 @@ def render_upload_card(cfg):
 
         up_col, _, upbtn_col = st.columns([4, 1, 1])
 
+        current_gen = st.session_state.reset_generation
+
         with up_col:
             sales_key = f"sales_upload_v{st.session_state.uploader_version}"
             sales_file = st.file_uploader(
@@ -401,10 +415,13 @@ def render_upload_card(cfg):
                 key=sales_key,
                 help="Go to Modisoft -> Sales -> Live Items, Select Stores & Dates, Download as Excel"
             )
+            
+            if sales_file:
+                if st.session_state.sales_selection_generation != current_gen:
+                    st.session_state.sales_selected_name = sales_file.name
+                    st.session_state.sales_selected_epoch = st.session_state.upload_epoch
+                    st.session_state.sales_selection_generation = current_gen
 
-            if sales_file and st.session_state.sales_selected_name != sales_file.name:
-                st.session_state.sales_selected_name = sales_file.name
-                st.session_state.sales_uploaded_ok = True
 
             vendor_key = f"vendor_upload_v{st.session_state.uploader_version}"
             vendor_file = st.file_uploader(
@@ -413,10 +430,13 @@ def render_upload_card(cfg):
                 key=vendor_key,
                 help="Go to Modisoft -> Products -> Price Book , Download as Excel"
             )
+            
+            if vendor_file:
+                if st.session_state.vendor_selection_generation != current_gen:
+                    st.session_state.vendor_selected_name = vendor_file.name
+                    st.session_state.vendor_selected_epoch = st.session_state.upload_epoch
+                    st.session_state.vendor_selection_generation = current_gen
 
-            if vendor_file and st.session_state.vendor_selected_name != vendor_file.name:
-                st.session_state.vendor_selected_name = vendor_file.name
-                st.session_state.vendor_uploaded_ok = True
         
         with upbtn_col:
             st.markdown('<div class="ft-right-btn">', unsafe_allow_html=True)
@@ -1403,7 +1423,13 @@ defaults = {
     "uploader_version": 0,
     "ui_phase": UI_UPLOAD,
     "auth_required": True,
-    "running_ui_initialized": False
+    "running_ui_initialized": False,    
+    "upload_epoch": 0,                 # increments on “Upload different files”
+    "sales_selected_epoch": None,       # epoch when sales file was selected
+    "vendor_selected_epoch": None,    
+    "reset_generation": 0,
+    "sales_selection_generation": None,
+    "vendor_selection_generation": None
 }
 
     
