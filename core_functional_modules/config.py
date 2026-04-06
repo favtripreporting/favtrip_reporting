@@ -234,6 +234,8 @@ def _coerce_json(v: Any) -> Dict[str, Any]:
 
 @dataclass
 class Config:
+    NON_PERSISTED_FIELDS = set()  
+  
     # IDs and basic settings
     CALC_SPREADSHEET_ID: str = "1ibkGkQ2khYMJydeenJkTzC4KoLQAyBZW_esQrbjSHXs"
     INCOMING_FOLDER_ID: str = "1jJE3r9DOHXwBdd94E6ZhxBBH9xvSjI-b"
@@ -445,15 +447,13 @@ class Config:
             env_path = Path.cwd() / ".env"
         env_path.write_text(self.to_env(), encoding="utf-8")
     
-    NON_PERSISTED_FIELDS = {}
 
+    
     def to_drive_defaults(self) -> dict:
-        """
-        Serialize all public config fields for persistence.
-        """
         return {
-          k: v
-          for k, v in vars(self).items()
-          if not k.startswith("_") and k not in NON_PERSISTED_FIELDS
+            k: v
+            for k, v in vars(self).items()
+            if not k.startswith("_")
+            and k not in self.NON_PERSISTED_FIELDS
         }
 
