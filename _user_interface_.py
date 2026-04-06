@@ -295,6 +295,16 @@ def _both_uploads_ok():
     )
 
 
+
+def _validate_pipeline_result(result):
+    required_attrs = ("location", "timestamp", "elapsed_seconds")
+    return (
+        result is not None
+        and all(hasattr(result, attr) for attr in required_attrs)
+    )
+
+
+
 # =========================
 # OAuth (Web / PKCE)
 # =========================
@@ -1024,6 +1034,10 @@ def run_pipeline_controller(cfg, run_id):
             )
         )
 
+        logger.info(
+            f"Pipeline returned result of type={type(result)}, value={repr(result)[:500]}"
+        )
+
     except BaseException as e:
         # Catch BaseException intentionally:
         # - ensures KeyboardInterrupt / SystemExit do not strand the UI
@@ -1064,9 +1078,17 @@ def render_running_status(cfg):
         if run_id != st.session_state.get("pipe_run_id"):
             continue
 
-        if status == "success":
-            st.session_state.pipe_result = payload
-            st.session_state.pipe_status = "done"
+        if status == "success":            
+            if _validate_pipeline_result(payload):
+                st.session_state.pipe_result = payload
+                st.session_state.pipe_status = "done"
+            else:
+                st.session_state.pipe_status = "error"
+                st.session_state.pipe_error = (
+                    "Pipeline completed but returned an invalid result object. "
+                    "See log for details."
+                )
+
         else:
             st.session_state.pipe_error = payload
             st.session_state.pipe_status = "error"
@@ -1135,12 +1157,18 @@ def render_results(cfg):
     result = st.session_state.get("pipe_result")
 
     
-    if not isinstance(result, object):
-            # Defensive fallback: do NOT flip to error automatically
-            st.error(
-                "Run completed, but the result object could not be loaded. "
-                "Please download the log for details."
-            )
+    if not _validate_pipeline_result(result):
+        st.error(
+            "Run completed, but the pipeline did not return a valid result object."
+        )
+        if os.path.exists("last_run.log"):
+            with open("last_run.log", "rb") as f:
+                st.download_button(
+                    "⬇️ Download log",
+                    f.read(),
+                    file_name="last_run.log",
+                    mime="text/plain",
+                )
 
 
     with st.container(border=True):
