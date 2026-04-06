@@ -483,6 +483,60 @@ def apply_per_run_config(
 
     return rk_map
 
+
+def github_merge(from_branch: str, to_branch: str) -> bool:
+    """
+    Merge `from_branch` into `to_branch` using GitHub's API.
+
+    Returns True on success, False on failure.
+    All secrets are fetched internally with safe failure.
+    """
+
+    try:
+        token = (st.secrets.get("GITHUB_TOKEN", "") or "").strip()
+        owner = (st.secrets.get("GITHUB_OWNER", "") or "").strip()
+        repo = (st.secrets.get("GITHUB_REPO", "") or "").strip()
+
+        missing = []
+        if not token:
+            missing.append("GITHUB_TOKEN")
+        if not owner:
+            missing.append("GITHUB_OWNER")
+        if not repo:
+            missing.append("GITHUB_REPO")
+
+        if missing:
+            st.error(f"Missing GitHub secrets: {', '.join(missing)}")
+            return False
+
+        url = f"https://api.github.com/repos/{owner}/{repo}/merges"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        }
+        payload = {
+            "base": to_branch,
+            "head": from_branch,
+            "commit_message": f"Merge {from_branch} → {to_branch} (via Streamlit)",
+        }
+
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+
+        if resp.status_code == 201:
+            return True
+
+        if resp.status_code == 409:
+            st.error("❌ Merge conflict detected. Resolve manually.")
+            return False
+
+        st.error(f"GitHub merge failed ({resp.status_code}): {resp.text}")
+        return False
+
+    except Exception as e:
+        st.error(f"Unexpected merge error: {e}")
+        return False
+
+
 # =========================
 # OAuth (Web / PKCE)
 # =========================
@@ -1381,9 +1435,18 @@ def render_sidebar(cfg):
                 help="Overwrite the PROD defaults JSON with the current DEV defaults",
             ):
                 st.session_state["confirm_push_dev_to_prod"] = True
+            
+            if st.button(
+                    "🚀 Push Code Changes to Prod",
+                    type="primary",
+                    width="stretch",
+                    help="Merge the dev branch directly into main via GitHub",
+                ):
+                    st.session_state["confirm_merge_dev_to_main"] = True
 
 
-        @st.dialog("⚠️ Confirm Push to Production")
+
+        @st.dialog("⚠️ Confirm Default Push to Production")
         def confirm_push_dev_to_prod():
             st.markdown(
                 """
@@ -1441,10 +1504,57 @@ def render_sidebar(cfg):
                     st.session_state.pop("confirm_push_dev_to_prod", None)
                     _rerun()
 
+        @st.dialog("⚠️ Confirm Code Push to Production")
+        def confirm_merge_dev_to_main():
+            base = 'test-main'
+            target = 'main'
+            st.markdown(
+                f"""
+                **You are about to merge `{base}` into `{target}`.**
+
+                - ✅ GitHub history will be preserved  
+                - ✅ Branch protections still apply  
+                - ❌ This action **may deploy to production**
+                - ❌ This action **cannot be undone**
+
+                Please confirm you want to continue.
+                """
+            )
+
+            col_confirm, col_cancel = st.columns(2)
+
+            with col_confirm:
+                if st.button(
+                    "✅ Yes — Merge dev → main",
+                    type="primary",
+                    width="stretch",
+                ):
+                    try:
+                        with st.spinner("Merging branches…"):
+                            success = github_merge(base, target)
+
+                        if success:
+                            st.success(f"✅ {base} successfully merged into {target}.")
+                        else:
+                            st.error("❌ Merge did not complete.")
+
+                    finally:
+                        st.session_state.pop("confirm_merge_dev_to_main", None)
+                        st.rerun()
+
+            with col_cancel:
+                if st.button("❌ Cancel", width="stretch"):
+                    st.session_state.pop("confirm_merge_dev_to_main", None)
+                    st.rerun()
 
         # Trigger dialog
         if st.session_state.get("confirm_push_dev_to_prod"):
             confirm_push_dev_to_prod()
+        
+        if st.session_state.get("confirm_merge_dev_to_main"):
+            confirm_merge_dev_to_main()
+
+        
 
 def render_upload_different_button(cfg):
     if st.button("🔁 Upload different files", width="stretch"):
