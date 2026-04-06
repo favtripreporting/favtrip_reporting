@@ -296,8 +296,8 @@ def start_run():
 
 def _both_uploads_ok():
     return (
-        st.session_state.sales_uploaded_ok
-        and st.session_state.vendor_uploaded_ok
+        st.session_state.sales_selected_name is not None
+        and st.session_state.vendor_selected_name is not None
     )
 
 
