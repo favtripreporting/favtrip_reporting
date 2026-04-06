@@ -187,7 +187,6 @@ def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str, portrait:
         params.update({
             "portrait": "true" if portrait else "false",
             "fitw": "true",   # fit to width
-            "scale": "4",     # normal scaling
         })
 
     # Build query string
