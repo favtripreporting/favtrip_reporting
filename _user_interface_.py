@@ -1088,6 +1088,13 @@ def render_running_status(cfg):
             st.session_state.pipe_error = payload
             st.session_state.pipe_status = PIPE_STATUS_ERROR
             st.session_state.pipe_finished = True
+    
+    if st.session_state.pipe_finished:
+        if st.session_state.pipe_status == PIPE_STATUS_DONE:
+            st.session_state.ui_phase = UI_RESULT
+        elif st.session_state.pipe_status == PIPE_STATUS_ERROR:
+            st.session_state.ui_phase = UI_RESULT_ERROR
+        return
 
     # ------------------------------------------------------------
     # ALWAYS render something
@@ -1130,17 +1137,6 @@ def render_running_status(cfg):
             key=f"pipeline_tick_{st.session_state.pipe_run_id}",
         )
 
-
-        
-
-    if st.session_state.pipe_finished:
-        if st.session_state.pipe_status == PIPE_STATUS_DONE:
-            st.session_state.ui_phase = UI_RESULT
-            st.rerun()
-        elif st.session_state.pipe_status == PIPE_STATUS_ERROR:
-            st.session_state.ui_phase = UI_RESULT_ERROR
-            st.rerun()
-        return
 
 
 def render_results(cfg):
