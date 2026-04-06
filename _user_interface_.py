@@ -122,6 +122,21 @@ PIPE_STATUS_DONE = "done"
 PIPE_STATUS_ERROR = "error"
 
 
+class UIError(Exception):
+    """
+    Base class for errors that should show a friendly message
+    plus optional technical details.
+    """
+    user_message: str
+    title: str = "Error"
+
+    def __init__(self, user_message: str, *, title: str | None = None):
+        super().__init__(user_message)
+        self.user_message = user_message
+        if title:
+            self.title = title
+
+
 def _split_emails(csv_str: str):
     return [e.strip() for e in (csv_str or "").split(",") if e.strip()]
 
@@ -1052,10 +1067,18 @@ def run_pipeline_controller(cfg, run_id):
         get_pipeline_queue().put(
             (run_id, PIPE_STATUS_DONE, result)
         )
-    except BaseException as e:        
+    except Exception as e:
         get_pipeline_queue().put(
-                    (run_id, PIPE_STATUS_ERROR, traceback.format_exc())
-                )
+            (
+                run_id,
+                PIPE_STATUS_ERROR,
+                {
+                    "type": type(e).__name__,
+                    "user_message": str(e),
+                    "traceback": traceback.format_exc(),
+                },
+            )
+        )
 
     finally:
         logger.close()
@@ -1316,15 +1339,21 @@ def render_upload_different_button(cfg):
 
 
 def render_result_error(cfg):
+    payload = st.session_state.get("pipe_error")
+
     with st.container(border=True):
         st.subheader("❌ Run Failed")
-        st.error("The pipeline did not complete successfully.")
-        
-        st.warning(
-            st.session_state.get("pipe_error")
-            or st.session_state.get("run_error")
-            or "Unknown error"
-        )
+
+        if isinstance(payload, dict):
+            # ✅ Friendly message (wrapped, readable)
+            st.error(f"{payload['type']}: {payload['user_message']}")
+
+            # ✅ Technical details hidden by default
+            with st.expander("Technical details"):
+                st.text(payload["traceback"])
+
+        else:
+            st.error("Unknown error occurred.")
 
 
         if st.button("🔁 Upload different files", type="primary"):
