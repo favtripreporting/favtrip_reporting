@@ -1526,7 +1526,7 @@ def render_sidebar(cfg):
 
             with col_confirm:
                 if st.button(
-                    "✅ Yes — Merge dev → main",
+                    f"✅ Yes — Merge {base} → {target}",
                     type="primary",
                     width="stretch",
                 ):
