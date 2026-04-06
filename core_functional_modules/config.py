@@ -275,6 +275,10 @@ class Config:
     USE_AUTO_ROLLOVER_IF_ONE_WEEK: bool = True
     START_DAY_OF_WEEK: str = "Sunday"    # Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Any
     END_DAY_OF_WEEK: str = "Saturday"    # Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Any
+    
+    SOFT_CASES_ALERT_ENABLED: bool = True
+    SOFT_CASES_ALERT_THRESHOLD: int = 10
+
 
     # Cleanup
     OUTPUT_TIME_TO_LIFE: int = 30
@@ -347,6 +351,10 @@ class Config:
             USE_AUTO_ROLLOVER_IF_ONE_WEEK=_coerce_bool(_get_secret("USE_AUTO_ROLLOVER_IF_ONE_WEEK", "true")),
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
+
+            
+            SOFT_CASES_ALERT_ENABLED=_coerce_bool(_get_secret("SOFT_CASES_ALERT_ENABLED", "true")),
+            SOFT_CASES_ALERT_THRESHOLD=int(_get_secret("SOFT_CASES_ALERT_THRESHOLD", 10)),
 
             BEV_MAPPING_LINK=str(_get_secret("BEV_MAPPING_LINK", "https://docs.google.com/spreadsheets/d/1O6MtF-GM0VayqMr_v3oJC5PnRK5yv6biiDtA_qw-Z3g/")),
         )

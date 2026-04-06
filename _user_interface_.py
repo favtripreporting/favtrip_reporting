@@ -832,7 +832,21 @@ def render_run_options(cfg):
             
             with tab6:
                 gf1, gf2 = st.columns([1, 1])
-                with gf1:
+                with gf1:                
+                    soft_cases_enabled = st.toggle(
+                        "Alert on large case quantities",
+                        value=cfg.SOFT_CASES_ALERT_ENABLED,
+                        help="Send a technical alert if any FULL order rows exceed the cases threshold"
+                    )
+
+                    soft_cases_threshold = st.number_input(
+                        "Cases-to-order alert threshold",
+                        min_value=1,
+                        max_value=1000,
+                        value=int(cfg.SOFT_CASES_ALERT_THRESHOLD),
+                        help="Any FULL order line above this number will trigger a soft alert"
+                    )
+
                     raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                     redirect_port = st.number_input(
                         "Redirect Port (0 = auto)",
@@ -889,6 +903,10 @@ def render_run_options(cfg):
             cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK = bool(use_rollover)
             cfg.START_DAY_OF_WEEK = start_dow
             cfg.END_DAY_OF_WEEK = end_dow
+
+            cfg.SOFT_CASES_ALERT_ENABLED = bool(soft_cases_enabled)
+            cfg.SOFT_CASES_ALERT_THRESHOLD = int(soft_cases_threshold)
+
 
             cfg.BEV_MAPPING_LINK = BEV_MAPPING_LINK
 

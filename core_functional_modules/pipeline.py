@@ -97,7 +97,7 @@ from .sheets_utils import (
     add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet, autoresize_columns, export_sheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
-from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report, email_bev_error_report
+from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report, email_bev_error_report, email_large_case_alert_report
 
 CSV_MIME = "text/csv"
 
@@ -908,6 +908,137 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
+
+
+    #Step 7.1: Large Case Alert
+    try:
+        if cfg.SOFT_CASES_ALERT_ENABLED:
+            if logger:
+                logger.info(
+                    f"Checking FULL order for case quantities > "
+                    f"{cfg.SOFT_CASES_ALERT_THRESHOLD}"
+                )
+
+            # Load FULL order CSV into DataFrame
+            df = pandas.read_csv(io.BytesIO(master_csv_bytes))
+
+            # Normalize column lookup (case-insensitive)
+            lower_cols = {c.lower(): c for c in df.columns}
+            cases_col = lower_cols.get("cases to order")
+
+            if not cases_col:
+                if logger:
+                    logger.warn(
+                        "Large case alert skipped — 'Cases to Order' "
+                        "column not found in FULL order CSV"
+                    )
+            else:
+                # Ensure numeric comparison
+                df[cases_col] = pandas.to_numeric(
+                    df[cases_col], errors="coerce"
+                ).fillna(0)
+
+                flagged = df[
+                    df[cases_col] > cfg.SOFT_CASES_ALERT_THRESHOLD
+                ]
+
+                if flagged.empty:
+                    if logger:
+                        logger.info(
+                            "No FULL order rows exceed case threshold"
+                        )
+                else:
+                    if logger:
+                        logger.warn(
+                            f"Soft alert triggered: {len(flagged)} "
+                            f"rows exceed case threshold"
+                        )
+
+                    # --------------------------------------------------
+                    # Create filtered CSV (only flagged rows)
+                    # --------------------------------------------------
+                    buf = io.StringIO()
+                    flagged.to_csv(buf, index=False)
+                    alert_csv_bytes = buf.getvalue().encode("utf-8-sig")
+
+                    alert_csv_name = (
+                        f"Large_Case_Alert_{location}_{ts}.csv"
+                    )
+
+                    # Upload alert CSV → Google Sheet
+                    created = upload_to_drive(
+                        drive_svc,
+                        alert_csv_bytes,
+                        alert_csv_name,
+                        CSV_MIME,
+                        cfg.ERROR_REPORT_FOLDER_ID,
+                        to_sheet=True,
+                    )
+
+                    alert_sheet_id = created["id"]
+                    alert_sheet_link = created.get("webViewLink")
+
+                    alert_gid = first_gid(sheets_svc, alert_sheet_id)
+                    autoresize_columns(
+                        sheets_svc,
+                        alert_sheet_id,
+                        alert_gid,
+                    )
+
+                    # Export alert PDF
+                    alert_pdf_bytes = export_sheet(
+                        creds,
+                        alert_sheet_id,
+                        alert_gid,
+                        "pdf",
+                        False,
+                    )
+                    alert_pdf_name = (
+                        f"Large_Case_Alert_{location}_{ts}.pdf"
+                    )
+
+                    # --------------------------------------------------
+                    # Resolve recipients (technical first)
+                    # --------------------------------------------------
+                    to_list = _fallback_recipients(
+                        "LARGE CASE ALERT",
+                        cfg.ERROR_RECIPIENTS,
+                        cfg.TO_RECIPIENTS,
+                        cfg.DEFAULT_ORDER_RECIPIENTS,
+                    )
+
+                    cc_list = [
+                        e for e in _clean_emails(cfg.CC_RECIPIENTS)
+                        if e not in to_list
+                    ]
+
+                    # --------------------------------------------------
+                    # Send email (SOFT ALERT)
+                    # --------------------------------------------------
+                    email_large_case_alert_report(
+                        gmail_svc=gmail_svc,
+                        sender="me",
+                        to_list=to_list,
+                        cc_list=cc_list,
+                        ts=ts,
+                        location=location,
+                        threshold=cfg.SOFT_CASES_ALERT_THRESHOLD,
+                        pdf_name=alert_pdf_name,
+                        pdf_bytes=alert_pdf_bytes,
+                        sheet_link=alert_sheet_link,
+                    )
+
+                    if logger:
+                        logger.info(
+                            "Large case quantity alert email sent"
+                        )
+
+    except Exception as e:
+        # 🔐 Soft failure only — never block pipeline
+        if logger:
+            logger.warn(
+                f"Large case quantity alert failed (soft): {e}"
+            )
 
     # Step 8: Create per-report-key outputs (CSV) and email
 
