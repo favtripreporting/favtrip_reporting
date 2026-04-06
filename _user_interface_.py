@@ -279,9 +279,15 @@ def reset_pipeline_state():
 
 def start_run():
     st.session_state.pipe_run_id = str(uuid.uuid4())
+
     st.session_state.pipe_status = PIPE_STATUS_RUNNING
-    st.session_state.pipe_result = None
-    st.session_state.pipe_error = None
+    st.session_state.pipeline_thread_started = True
+    st.session_state.pipeline_done = False
+    st.session_state.pipeline_error = None
+    st.session_state.pipeline_result = None
+
+    st.session_state.pipeline_refresh_key = f"pipeline_refresh_{time.time()}"
+
 
 
 def _both_uploads_ok():
@@ -879,13 +885,7 @@ def render_run_options(cfg):
 
             # Start pipeline in background (one time)
             if not st.session_state.pipeline_thread_started:
-                st.session_state.pipe_status = PIPE_STATUS_RUNNING
-                st.session_state.pipeline_thread_started = True
-                st.session_state.pipeline_done = False
-                st.session_state.pipeline_error = None
-                st.session_state.pipeline_result = None
-
-                st.session_state.pipeline_refresh_key = f"pipeline_refresh_{time.time()}"
+                start_run()
 
                 t = threading.Thread(
                     target=run_pipeline_controller,
