@@ -1337,13 +1337,13 @@ def render_result_error(cfg):
             _rerun()
     
     if "last_run_log" in st.session_state:
-            st.download_button(
-                "⬇️ Download full log (last_run.log)",
-                st.session_state["last_run_log"],
-                file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
-                mime="text/plain",
-                width='stretch'
-                )
+        st.download_button(
+            "⬇️ Download full log (last_run.log)",
+            st.session_state["last_run_log"],
+            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+            mime="text/plain",
+            width='stretch'
+            )
 
 
 
