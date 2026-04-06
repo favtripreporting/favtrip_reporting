@@ -80,6 +80,7 @@ import hashlib
 import secrets
 import re
 import queue
+import uuid
 
 import streamlit as st
 from streamlit.components.v1 import html
@@ -114,6 +115,11 @@ UI_RESULT = "RESULT"
 UI_RESULT_ERROR = "RESULT_ERROR"     # run_pipeline failed
 UI_UPLOAD_ERROR = "UPLOAD_ERROR"     # invalid input (1–2 weeks)
 
+
+PIPE_STATUS_IDLE = "idle"
+PIPE_STATUS_RUNNING = "running"
+PIPE_STATUS_DONE = "done"
+PIPE_STATUS_ERROR = "error"
 
 
 def _split_emails(csv_str: str):
@@ -259,10 +265,24 @@ def init_thread_state():
     if "pipeline_thread" not in st.session_state:
         st.session_state.pipeline_thread = None
 
+def init_pipeline_state():
+    st.session_state.setdefault("pipe_status", PIPE_STATUS_IDLE)
+    st.session_state.setdefault("pipe_result", None)
+    st.session_state.setdefault("pipe_error", None)
+    st.session_state.setdefault("pipe_run_id", None)
+
 def reset_pipeline_state():
     st.session_state.pipeline_thread_started = False
     st.session_state.pipeline_done = False
     st.session_state.pipeline_error = None
+
+
+def start_run():
+    st.session_state.pipe_run_id = str(uuid.uuid4())
+    st.session_state.pipe_status = PIPE_STATUS_RUNNING
+    st.session_state.pipe_result = None
+    st.session_state.pipe_error = None
+
 
 def _both_uploads_ok():
     return (
@@ -984,126 +1004,97 @@ def render_run_options(cfg):
                 _rerun()
             """
 
-def run_pipeline_controller(cfg):
-    logger = StatusLogger(
-        print_to_console=True,
-        file_path="last_run.log",
-        overwrite=True
-    )
-
+def run_pipeline_controller(cfg, run_id):
+    logger = StatusLogger(print_to_console=True, file_path="last_run.log", overwrite=True)
     try:
-        print("🟢 PIPELINE THREAD STARTED")
-
         result = run_pipeline(cfg, logger=logger)
-
-        # ---- DIAGNOSTIC ----
-        print("✅ PIPELINE PUT SUCCESS:", type(result))
-        PIPELINE_QUEUE.put(("success", result))
-
-    except BaseException as e:
-        # ---- DIAGNOSTIC ----
-        print("❌ PIPELINE PUT ERROR:", repr(e))
-        PIPELINE_QUEUE.put(("error", f"{type(e).__name__}: {e}"))
-
-    finally:
-        print("🔚 PIPELINE THREAD EXITING")
-
-
-
+        PIPELINE_QUEUE.put((run_id, "success", result))
+    except Exception as e:
 
 def render_running_status(cfg):
-
     # ------------------------------------------------------------------
-    # Initialize one-time UI and state guards
+    # Helper: drain queue exactly once (edge-triggered)
     # ------------------------------------------------------------------
-    if "running_ui_initialized" not in st.session_state:
-        st.session_state.running_ui_initialized = False
-
-    if "_run_start_time" not in st.session_state:
-        st.session_state._run_start_time = None
-
-    # ------------------------------------------------------------------
-    # Decide whether we should keep rerunning
-    # Keep rerunning WHILE:
-    #   - UI phase is RUNNING
-    #   - AND we do NOT yet have a result or error
-    # ------------------------------------------------------------------
-    
-    should_refresh = (
-        st.session_state.ui_phase == UI_RUNNING
-        and st.session_state.pipeline_result is None
-        and st.session_state.pipeline_error is None
-    )
-
-    if should_refresh and st.session_state.get("pipeline_refresh_key"):
-        st_autorefresh(
-            interval=1000,
-            key=st.session_state.pipeline_refresh_key
-        )
-
-
-    # ------------------------------------------------------------------
-    # Create the "Running…" UI ONCE
-    # ------------------------------------------------------------------
-    if not st.session_state.running_ui_initialized:
-        with st.status("Running pipeline…", expanded=True):
-            st.session_state.timer_ph = st.empty()
-            st.session_state.log_ph = st.empty()
-        st.session_state.running_ui_initialized = True
-
-    # ------------------------------------------------------------------
-    # Update timer
-    # ------------------------------------------------------------------
-    if st.session_state._run_start_time is None:
-        st.session_state._run_start_time = time.perf_counter()
-
-    elapsed = int(time.perf_counter() - st.session_state._run_start_time)
-    st.session_state.timer_ph.markdown(
-        f"**Elapsed:** `{elapsed//3600:02d}:"
-        f"{(elapsed%3600)//60:02d}:"
-        f"{elapsed%60:02d}`"
-    )
-
-    # ------------------------------------------------------------------
-    # Update log tail
-    # ------------------------------------------------------------------
-    if os.path.exists("last_run.log"):
+    def poll_pipeline_queue():
         try:
-            with open("last_run.log", "r", encoding="utf-8") as f:
-                lines = f.readlines()[-5:]
-            st.session_state.log_ph.code("".join(lines), language="text")
-        except Exception:
-            st.session_state.log_ph.markdown("*Waiting for logs…*")
-    else:
-        st.session_state.log_ph.markdown("*Waiting for logs…*")
+            run_id, status, payload = PIPELINE_QUEUE.get_nowait()
+        except queue.Empty:
+            return
 
-    # ------------------------------------------------------------------
-    # Track thread completion (NOT result availability)
-    # ------------------------------------------------------------------
-    try:
-        status, payload = PIPELINE_QUEUE.get_nowait()
+        # Ignore stale / foreign runs
+        if run_id != st.session_state.pipe_run_id:
+            return
 
         if status == "success":
-            st.session_state.pipeline_result = payload
-            st.session_state.ui_phase = UI_RESULT
+            st.session_state.pipe_result = payload
+            st.session_state.pipe_status = "done"
         else:
-            st.session_state.run_error = payload
-            st.session_state.ui_phase = UI_RESULT_ERROR
+            st.session_state.pipe_error = payload
+            st.session_state.pipe_status = "error"
 
-        # ------------------------------------------------------------------
-        # HARD STOP autorefresh + clean teardown
-        # ------------------------------------------------------------------
-        st.session_state.pipeline_refresh_key = None
-        st.session_state.pipeline_thread_started = False
-        st.session_state.pipeline_done = True
-        st.session_state.running_ui_initialized = False
-        st.session_state._run_start_time = None
+    # ------------------------------------------------------------------
+    # Helper: tail last_run.log (UI-safe)
+    # ------------------------------------------------------------------
+    def render_log_tail(lines=8):
+        if not os.path.exists("last_run.log"):
+            st.markdown("*Waiting for logs…*")
+            return
 
-        _rerun()
+        try:
+            with open("last_run.log", "r", encoding="utf-8") as f:
+                tail = f.readlines()[-lines:]
+            st.code("".join(tail), language="text")
+        except Exception:
+            st.markdown("*Waiting for logs…*")
 
-    except queue.Empty:
-        pass
+    # ------------------------------------------------------------------
+    # Apply pipeline completion FIRST on every rerun
+    # ------------------------------------------------------------------
+    poll_pipeline_queue()
 
+    # ------------------------------------------------------------------
+    # RUNNING STATE (authoritative)
+    # ------------------------------------------------------------------
+    if st.session_state.pipe_status == "running":
+        # Auto-refresh drives the UI clock; background thread never touches UI
+        st_autorefresh(interval=1000, key="pipeline_tick")
+
+        # Initialize timer once per run
+        if "_run_start_time" not in st.session_state:
+            st.session_state._run_start_time = time.perf_counter()
+
+        elapsed = int(time.perf_counter() - st.session_state._run_start_time)
+        h = elapsed // 3600
+        m = (elapsed % 3600) // 60
+        s = elapsed % 60
+
+        with st.status("Running pipeline…", expanded=True):
+            st.markdown(
+                f"**Elapsed:** `{h:02d}:{m:02d}:{s:02d}`"
+            )
+            render_log_tail()
+
+        return  # ❗ critical: do NOT fall through
+
+    # ------------------------------------------------------------------
+    # DONE → Transition to Results UI
+    # ------------------------------------------------------------------
+    if st.session_state.pipe_status == "done":
+        # One-time cleanup
+        st.session_state.pop("_run_start_time", None)
+
+        # Switch phase and rerender once
+        st.session_state.ui_phase = UI_RESULT
+        st.rerun()
+
+    # ------------------------------------------------------------------
+    # ERROR → Transition to Error UI
+    # ------------------------------------------------------------------
+    if st.session_state.pipe_status == "error":
+        st.session_state.pop("_run_start_time", None)
+
+        st.session_state.ui_phase = UI_RESULT_ERROR
+        st.rerun()
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")

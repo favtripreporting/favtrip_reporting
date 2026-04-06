@@ -9,3 +9,4 @@ streamlit
 streamlit-autorefresh
 openpyxl
 pandas
+uuid
