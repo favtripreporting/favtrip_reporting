@@ -847,18 +847,19 @@ def render_run_options(cfg):
                         help="Any FULL order line above this number will trigger a soft alert"
                     )
 
+                with gf2:
+                    error_recipients = st.text_input(
+                        "Technical Support Email(s) (comma)",
+                        value=",".join(cfg.ERROR_RECIPIENTS or []),
+                        help="If errors arise such as missing items in the Vendor Price Book, the error report will be sent here."
+                    )
+
                     raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                     redirect_port = st.number_input(
                         "Redirect Port (0 = auto)",
                         min_value=0, max_value=65535,
                         value=raw_redirect_port if raw_redirect_port in (0, *range(1024, 65536)) else 0,
                         help="Use 0 to auto-pick a free port. Otherwise choose 1024–65535."
-                    )
-                with gf2:
-                    error_recipients = st.text_input(
-                        "Technical Support (comma)",
-                        value=",".join(cfg.ERROR_RECIPIENTS or []),
-                        help="If errors arise such as missing items in the Vendor Price Book, the error report will be sent here."
                     )
 
 
