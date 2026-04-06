@@ -1047,18 +1047,23 @@ def run_pipeline_controller(cfg, run_id):
 
 
 def render_running_status(cfg):
-    # ------------------------------------------------------------------
-    # Helper: drain queue exactly once (edge-triggered)
-    # ------------------------------------------------------------------
+    
+    # ------------------------------------------------------------
+    # Defensive defaults (blank screen killer)
+    # ------------------------------------------------------------
+    pipe_status = st.session_state.get("pipe_status", "idle")
+
+    # ------------------------------------------------------------
+    # Poll queue FIRST (edge-triggered)
+    # ------------------------------------------------------------
     def poll_pipeline_queue():
         try:
             run_id, status, payload = PIPELINE_QUEUE.get_nowait()
         except queue.Empty:
-            return
+            return False
 
-        # Ignore stale / foreign runs
-        if run_id != st.session_state.pipe_run_id:
-            return
+        if run_id != st.session_state.get("pipe_run_id"):
+            return False
 
         if status == "success":
             st.session_state.pipe_result = payload
@@ -1067,34 +1072,18 @@ def render_running_status(cfg):
             st.session_state.pipe_error = payload
             st.session_state.pipe_status = "error"
 
-    # ------------------------------------------------------------------
-    # Helper: tail last_run.log (UI-safe)
-    # ------------------------------------------------------------------
-    def render_log_tail(lines=8):
-        if not os.path.exists("last_run.log"):
-            st.markdown("*Waiting for logs…*")
-            return
+        return True
 
-        try:
-            with open("last_run.log", "r", encoding="utf-8") as f:
-                tail = f.readlines()[-lines:]
-            st.code("".join(tail), language="text")
-        except Exception:
-            st.markdown("*Waiting for logs…*")
-
-    # ------------------------------------------------------------------
-    # Apply pipeline completion FIRST on every rerun
-    # ------------------------------------------------------------------
     poll_pipeline_queue()
 
-    # ------------------------------------------------------------------
-    # RUNNING STATE (authoritative)
-    # ------------------------------------------------------------------
-    if st.session_state.pipe_status == "running":
-        # Auto-refresh drives the UI clock; background thread never touches UI
-        st_autorefresh(interval=1000, key="pipeline_tick")
+    # ------------------------------------------------------------
+    # ALWAYS render something for RUNNING phase
+    # ------------------------------------------------------------
+    with st.status("Running pipeline…", expanded=True):
 
-        # Initialize timer once per run
+        # --------------------------------------------------------
+        # Timer init
+        # --------------------------------------------------------
         if "_run_start_time" not in st.session_state:
             st.session_state._run_start_time = time.perf_counter()
 
@@ -1103,33 +1092,36 @@ def render_running_status(cfg):
         m = (elapsed % 3600) // 60
         s = elapsed % 60
 
-        with st.status("Running pipeline…", expanded=True):
-            st.markdown(
-                f"**Elapsed:** `{h:02d}:{m:02d}:{s:02d}`"
-            )
-            render_log_tail()
+        st.markdown(f"**Elapsed:** `{h:02d}:{m:02d}:{s:02d}`")
 
-        return  # ❗ critical: do NOT fall through
+        # --------------------------------------------------------
+        # Log tail
+        # --------------------------------------------------------
+        if os.path.exists("last_run.log"):
+            try:
+                with open("last_run.log", "r", encoding="utf-8") as f:
+                    st.code("".join(f.readlines()[-8:]), language="text")
+            except Exception:
+                st.markdown("*Waiting for logs…*")
+        else:
+            st.markdown("*Waiting for logs…*")
 
-    # ------------------------------------------------------------------
-    # DONE → Transition to Results UI
-    # ------------------------------------------------------------------
-    if st.session_state.pipe_status == "done":
-        # One-time cleanup
+    # ------------------------------------------------------------
+    # State transitions (AFTER rendering)
+    # ------------------------------------------------------------
+    if pipe_status == "running":
+        st_autorefresh(interval=1000, key="pipeline_tick")
+        return
+
+    if pipe_status == "done":
         st.session_state.pop("_run_start_time", None)
-
-        # Switch phase and rerender once
         st.session_state.ui_phase = UI_RESULT
-        st.rerun()
+        _rerun()
 
-    # ------------------------------------------------------------------
-    # ERROR → Transition to Error UI
-    # ------------------------------------------------------------------
-    if st.session_state.pipe_status == "error":
+    if pipe_status == "error":
         st.session_state.pop("_run_start_time", None)
-
         st.session_state.ui_phase = UI_RESULT_ERROR
-        st.rerun()
+        _rerun()
 
 def render_results(cfg):
     result = st.session_state.get("pipeline_result")
