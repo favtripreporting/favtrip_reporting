@@ -1579,7 +1579,8 @@ defaults = {
     "vendor_selected_epoch": None,    
     "reset_generation": 0,
     "sales_selection_generation": None,
-    "vendor_selection_generation": None
+    "vendor_selection_generation": None,
+    "sidebar_hint_seen": True
 }
 
     
