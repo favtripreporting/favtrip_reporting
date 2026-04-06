@@ -1084,8 +1084,11 @@ def render_running_status(cfg):
         # --------------------------------------------------------
         # Timer init
         # --------------------------------------------------------
-        if "_run_start_time" not in st.session_state:
-            st.session_state._run_start_time = time.perf_counter()
+        start_time = st.session_state.get("_run_start_time")
+
+        if not isinstance(start_time, (int, float)):
+            start_time = time.perf_counter()
+            st.session_state._run_start_time = start_time
 
         elapsed = int(time.perf_counter() - st.session_state._run_start_time)
         h = elapsed // 3600
