@@ -1138,6 +1138,12 @@ def render_running_status(cfg):
 
     if status == "error":
         st.session_state.pop("_run_start_time", None)
+        
+        # 🔑 Bridge pipe_error → run_error for the result UI
+        st.session_state.run_error = st.session_state.get(
+            "pipe_error", "Unknown pipeline error"
+        )
+
         st.session_state.ui_phase = UI_RESULT_ERROR
         st.rerun()
 
