@@ -1005,11 +1005,46 @@ def render_run_options(cfg):
             """
 
 def run_pipeline_controller(cfg, run_id):
-    logger = StatusLogger(print_to_console=True, file_path="last_run.log", overwrite=True)
+
+    logger = StatusLogger(
+        print_to_console=True,
+        file_path="last_run.log",
+        overwrite=True,
+    )
+
     try:
+        # --- Execute the pipeline synchronously ---
         result = run_pipeline(cfg, logger=logger)
-        PIPELINE_QUEUE.put((run_id, "success", result))
-    except Exception as e:
+
+        # --- Success handoff (edge-triggered) ---
+        PIPELINE_QUEUE.put(
+            (
+                run_id,
+                "success",
+                result,
+            )
+        )
+
+    except BaseException as e:
+        # Catch BaseException intentionally:
+        # - ensures KeyboardInterrupt / SystemExit do not strand the UI
+        # - turns "random crash" into a clean UI failure
+
+        PIPELINE_QUEUE.put(
+            (
+                run_id,
+                "error",
+                f"{type(e).__name__}: {e}",
+            )
+        )
+
+    finally:
+        # Optional but recommended: flush / close logger
+        try:
+            logger.close()
+        except Exception:
+            pass
+
 
 def render_running_status(cfg):
     # ------------------------------------------------------------------
