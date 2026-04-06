@@ -81,6 +81,7 @@ import secrets
 import re
 import queue
 import uuid
+import traceback
 
 import streamlit as st
 from streamlit.components.v1 import html
@@ -250,7 +251,12 @@ def reset_to_upload():
     st.session_state.uploader_version += 1
     st.session_state.ui_phase = UI_UPLOAD
 
-    _rerun()
+    
+    for k in list(st.session_state.keys()):
+        if k.startswith("sales_upload_") or k.startswith("vendor_upload_"):
+            st.session_state.pop(k, None)
+
+
 
 def init_thread_state():
     if "pipeline_thread_started" not in st.session_state:
@@ -1026,10 +1032,11 @@ def run_pipeline_controller(cfg, run_id):
         get_pipeline_queue().put(
             (run_id, PIPE_STATUS_DONE, result)
         )
-    except BaseException as e:
+    except BaseException as e:        
         get_pipeline_queue().put(
-            (run_id, PIPE_STATUS_ERROR, str(e))
-        )
+                    (run_id, PIPE_STATUS_ERROR, traceback.format_exc())
+                )
+
     finally:
         logger.close()
 
@@ -1063,6 +1070,7 @@ def render_running_status(cfg):
 
         elif status == PIPE_STATUS_ERROR:
             st.session_state.pipe_error = payload
+            st.session_state.run_error = payload
             st.session_state.pipe_status = PIPE_STATUS_ERROR
             st.session_state.pipe_finished = True
     
@@ -1291,8 +1299,13 @@ def render_result_error(cfg):
     with st.container(border=True):
         st.subheader("❌ Run Failed")
         st.error("The pipeline did not complete successfully.")
+        
+        st.code(
+            st.session_state.get("pipe_error")
+            or st.session_state.get("run_error")
+            or "Unknown error"
+        )
 
-        st.code(st.session_state.get("run_error", "Unknown error"))
 
         if st.button("🔁 Upload different files", type="primary"):
             st.session_state.pop("run_error", None)
@@ -1354,10 +1367,12 @@ def render_app(cfg):
     elif phase == UI_RESULT_ERROR:
         render_sidebar(cfg)
         render_result_error(cfg)
+        render_upload_different_button(cfg)
 
     elif phase == UI_UPLOAD_ERROR:
         render_sidebar(cfg)
         render_upload_error(cfg)
+        render_upload_different_button(cfg)
         
 
 
