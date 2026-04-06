@@ -266,6 +266,7 @@ def init_thread_state():
 def init_pipeline_state():
     st.session_state.setdefault("pipe_status", PIPE_STATUS_IDLE)
     st.session_state.setdefault("pipe_result", None)
+    st.session_state.setdefault("pipe_finished", False)
     st.session_state.setdefault("pipe_error", None)
     st.session_state.setdefault("pipe_run_id", None)
 
@@ -1055,6 +1056,7 @@ def run_pipeline_controller(cfg, run_id):
         # Optional but recommended: flush / close logger
         try:
             logger.close()
+            PIPELINE_QUEUE.put((run_id, "finished", None))
         except Exception:
             pass
 
@@ -1078,20 +1080,16 @@ def render_running_status(cfg):
         if run_id != st.session_state.get("pipe_run_id"):
             continue
 
-        if status == "success":            
-            if _validate_pipeline_result(payload):
-                st.session_state.pipe_result = payload
-                st.session_state.pipe_status = "done"
-            else:
-                st.session_state.pipe_status = "error"
-                st.session_state.pipe_error = (
-                    "Pipeline completed but returned an invalid result object. "
-                    "See log for details."
-                )
+        if status == "success":
+            st.session_state.pipe_result = payload
+            st.session_state.pipe_status = "done"
 
-        else:
+        elif status == "error":
             st.session_state.pipe_error = payload
             st.session_state.pipe_status = "error"
+
+        elif status == "finished":
+            st.session_state.pipe_finished = True
 
     # ------------------------------------------------------------
     # ALWAYS render something
@@ -1131,25 +1129,13 @@ def render_running_status(cfg):
         )
         
 
-    if status == "done":
-        st.session_state.pop("_run_start_time", None)
-        st.session_state.ui_phase = UI_RESULT
-        _rerun()
-
-    if status == "error":
-        st.session_state.pop("_run_start_time", None)
-        
-        # 🔑 Bridge pipe_error → run_error for the result UI
-        st.session_state.run_error = st.session_state.get(
-            "pipe_error", "Unknown pipeline error"
-        )
-
-        st.session_state.ui_phase = UI_RESULT_ERROR
-        st.rerun()
-
-    if status == "done" and st.session_state.ui_phase != UI_RESULT:
-        st.session_state.ui_phase = UI_RESULT
-        _rerun()
+    if st.session_state.pipe_finished:
+        if st.session_state.pipe_status == "done":
+            st.session_state.ui_phase = UI_RESULT
+            st.rerun()
+        elif st.session_state.pipe_status == "error":
+            st.session_state.ui_phase = UI_RESULT_ERROR
+            st.rerun()
 
 
 def render_results(cfg):
