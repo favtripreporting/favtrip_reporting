@@ -1231,6 +1231,15 @@ def render_sidebar(cfg):
             help="If enabled, a 'Download last_run.log' button appears when a run finishes."
         )
 
+
+        st.download_button(
+            "⬇️ Download full log (last_run.log)",
+            st.session_state["last_run_log"],
+            file_name=f"last_run_{st.session_state['last_run_timestamp']}.log",
+            mime="text/plain",
+            width='stretch'
+            )
+
         # =============================================================
         # DEV-ONLY: Push DEV Defaults → PROD Defaults
         # =============================================================
