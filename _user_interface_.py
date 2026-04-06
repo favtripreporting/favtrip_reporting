@@ -1120,11 +1120,16 @@ def render_running_status(cfg):
     status = st.session_state.get("pipe_status")
 
     # ✅ This is what keeps the UI alive
-    if st.session_state.pipe_status == PIPE_STATUS_RUNNING:
+    
+    if (
+        st.session_state.pipe_status == PIPE_STATUS_RUNNING
+        and not st.session_state.pipe_finished
+    ):
         st_autorefresh(
             interval=1000,
             key=f"pipeline_tick_{st.session_state.pipe_run_id}",
         )
+
 
         
 
@@ -1135,6 +1140,7 @@ def render_running_status(cfg):
         elif st.session_state.pipe_status == PIPE_STATUS_ERROR:
             st.session_state.ui_phase = UI_RESULT_ERROR
             st.rerun()
+        return
 
 
 def render_results(cfg):
