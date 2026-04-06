@@ -1002,7 +1002,7 @@ def render_run_options(cfg):
                     )
 
                 
-        save_defaults_clicked = st.button("💾 Save as defaults", help="Persist current settings for future sessions")
+        save_defaults_clicked = st.form_submit_button("💾 Save as defaults", type="secondary", help="Persist current settings for future sessions")
 
 
         # ----- Submission handling -----
