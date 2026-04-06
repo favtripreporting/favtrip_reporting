@@ -1251,7 +1251,7 @@ def render_sidebar(cfg):
         st.link_button("Open Modisoft", "https://insights.modisoft.com/account/logon", width='stretch')
         st.link_button("Open Bev Mapping File", cfg.BEV_MAPPING_LINK, width='stretch')
 
-        if True:
+        if False:
             st.checkbox(
                 "Offer full log download",
                 key="offer_log_download",
