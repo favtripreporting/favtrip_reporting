@@ -831,14 +831,26 @@ def render_run_options(cfg):
                         )
             
             with tab6:
-                gf1, gf2 = st.columns([1, 1])
-                with gf1:                
+
+                #row1
+                gf1_1, gf2_1 = st.columns([1, 1])
+                with gf1_1:                
                     soft_cases_enabled = st.toggle(
                         "Alert on large case quantities",
                         value=cfg.SOFT_CASES_ALERT_ENABLED,
                         help="Send a technical alert if any FULL order rows exceed the cases threshold"
                     )
 
+                with gf2_1:
+                    error_recipients = st.text_input(
+                        "Technical Support Email(s) (comma)",
+                        value=",".join(cfg.ERROR_RECIPIENTS or []),
+                        help="If errors arise such as missing items in the Vendor Price Book, the error report will be sent here."
+                    )
+
+                #row2
+                gf1_2, gf2_2 = st.columns([1, 1])
+                with gf1_2:                
                     soft_cases_threshold = st.number_input(
                         "Cases-to-order alert threshold",
                         min_value=1,
@@ -847,13 +859,7 @@ def render_run_options(cfg):
                         help="Any FULL order line above this number will trigger a soft alert"
                     )
 
-                with gf2:
-                    error_recipients = st.text_input(
-                        "Technical Support Email(s) (comma)",
-                        value=",".join(cfg.ERROR_RECIPIENTS or []),
-                        help="If errors arise such as missing items in the Vendor Price Book, the error report will be sent here."
-                    )
-
+                with gf2_2:
                     raw_redirect_port = int(cfg.REDIRECT_PORT) if str(cfg.REDIRECT_PORT).isdigit() else 0
                     redirect_port = st.number_input(
                         "Redirect Port (0 = auto)",
