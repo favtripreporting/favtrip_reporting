@@ -888,7 +888,7 @@ def render_run_options(cfg):
 
                 t = threading.Thread(
                     target=run_pipeline_controller,
-                    args=(cfg,),
+                    args=(cfg, st.session_state.pipe_run_id),
                     daemon=True
                 )
                 st.session_state.pipeline_thread = t
@@ -1388,6 +1388,7 @@ st.session_state.auth_required = creds is None
 
 # --- STATE INIT ---
 init_thread_state()
+init_pipeline_state()
 
 # --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
 params = st.query_params
