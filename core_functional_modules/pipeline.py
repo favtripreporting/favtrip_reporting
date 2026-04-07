@@ -1143,11 +1143,12 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         
         candidates = None
         lookup_order = [
-            (store_tag, tag, sub_tag),
-            (store_tag, tag, None),
-            (None, tag, sub_tag),
-            (None, tag, None),
-            (store_tag, None, None),
+            (store_tag, tag, sub_tag), #Independence, BEV, 7UP
+            (store_tag, None, sub_tag),  #Independence, 7UP
+            (None, None, sub_tag),  #7UP
+            (store_tag, tag, None),  #Independence, BEV
+            (None, tag, None),  #BEV
+            (store_tag, None, None),  #Independence
         ]
 
         for lk in lookup_order:
