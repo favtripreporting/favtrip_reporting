@@ -849,9 +849,12 @@ def render_run_options(cfg):
               Map **Store, Report Key → Emails (comma)**.
               
               **Email Delivery Priority:**  
-              - `(Store, Key)` → First priority set of emails  
-              - `(, Key)` → Second priority set of emails  
-              - `(Store,)` → Third priority set of emails
+              - `(Store, Key, Sub-Key)` → 1st priority set of emails  
+              - `(Store, , Sub-Key)`    → 2nd priority set of emails  
+              - `(, , Sub-Key)`         → 3rd priority set of emails  
+              - `(Store, Key, )`        → 4th priority set of emails  
+              - `(, Key, )`             → 5th priority set of emails  
+              - `(Store, , )`           → 6th priority set of emails  
               - If not defined, it will use the default set of emails in `To (comma)` field above
               """)
         
