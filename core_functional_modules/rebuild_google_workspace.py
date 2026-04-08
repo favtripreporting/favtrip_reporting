@@ -1,4 +1,5 @@
 from typing import Dict
+import re
 
 from googleapiclient.discovery import Resource
 
@@ -6,6 +7,35 @@ from core_functional_modules.config import Config
 from core_functional_modules.google_client import load_valid_token, services
 from core_functional_modules.config_store import save_config_to_drive
 from core_functional_modules.logger import StatusLogger
+
+
+def extract_drive_id(value: str) -> str:
+    """
+    Accepts a Google Drive file ID or URL and returns the file ID.
+    Raises if no valid ID can be extracted.
+    """
+
+    if not value:
+        raise ValueError("Empty file ID or URL")
+
+    value = value.strip()
+
+    # If it already looks like a Drive ID, return it
+    if re.fullmatch(r"[a-zA-Z0-9_-]{20,}", value):
+        return value
+
+    # Try extracting ID from common Drive URL formats
+    patterns = [
+        r"/d/([a-zA-Z0-9_-]+)",          # /d/<id>
+        r"[?&]id=([a-zA-Z0-9_-]+)",      # ?id=<id>
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, value)
+        if match:
+            return match.group(1)
+
+    raise ValueError(f"Could not extract Google Drive file ID from: {value}")
 
 def create_folder_tree(drive, root_id):
     def mk(parent, name):
@@ -34,13 +64,30 @@ def create_folder_tree(drive, root_id):
     return folders
 
 def copy_master_files(drive, folders, cfg):
-    for key, file_id in cfg.MASTER_FILE_IDS.items():
+    # CALC spreadsheet
+    if cfg.CALC_SPREADSHEET_ID:
+        source_id = extract_drive_id(cfg.CALC_SPREADSHEET_ID)
+
         copied = drive.files().copy(
-            fileId=file_id,
+            fileId=source_id,
             body={"parents": [folders["01_MASTER"]]},
             fields="id",
         ).execute()
-        cfg.MASTER_FILE_IDS[key] = copied["id"]
+
+        cfg.CALC_SPREADSHEET_ID = copied["id"]
+
+    # BEV mapping file
+    if cfg.BEV_MAPPING_LINK:
+        source_id = extract_drive_id(cfg.BEV_MAPPING_LINK)
+
+        copied = drive.files().copy(
+            fileId=source_id,
+            body={"parents": [folders["01_MASTER"]]},
+            fields="id",
+        ).execute()
+
+        cfg.BEV_MAPPING_LINK = copied["id"]
+
 
 def find_single_folder_by_name(
     drive,
