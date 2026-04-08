@@ -1581,33 +1581,34 @@ def render_sidebar(cfg):
             confirm = st.checkbox("I understand this is destructive")
             password = st.text_input("Enter admin password", type="password")
 
+            if st.session_state.rebuild_error:
+                st.error(st.session_state.rebuild_error)
+
             col1, col2 = st.columns(2)
 
             with col1:
                 if st.button("❌ Cancel", width="stretch"):
-                    st.session_state.pop("confirm_rebuild_workspace", None)
-                    st.rerun()
+                    st.session_state.confirm_rebuild_workspace = False
+                    st.session_state.rebuild_error = None
 
             with col2:
                 if st.button("✅ Rebuild Workspace", type="primary", width="stretch"):
                     if not confirm:
-                        st.error("You must confirm the action.")
+                        st.session_state.rebuild_error = "You must confirm the action."
                         return
+
                     if password != "admin":
-                        st.error("Incorrect password.")
+                        st.session_state.rebuild_error = "Incorrect password."
                         return
 
-                    try:                        
+                    try:
                         result = rebuild_google_workspace(cfg)
-                        
                         st.session_state.rebuild_result = result
-                        st.session_state.confirm_rebuild = False
-
+                        st.session_state.rebuild_error = None
+                        st.session_state.confirm_rebuild_workspace = False
                     except Exception as e:
                         st.session_state.rebuild_error = str(e)
-                    finally:
-                        st.session_state.pop("confirm_rebuild_workspace", None)
-                        st.rerun()
+                    
 
 
         # Trigger dialog
@@ -1620,13 +1621,11 @@ def render_sidebar(cfg):
         if st.session_state.get("confirm_rebuild_workspace"):
             confirm_rebuild_workspace()
 
-        
-        if st.session_state.get("rebuild_running"):
-            st.info("Rebuild in progress…")
-            st.stop()
+        # ------------------------------------------------------------
+        # Rebuild results (persistent across reruns)
+        # ------------------------------------------------------------
 
-        
-        if "rebuild_result" in st.session_state:
+        if st.session_state.get("rebuild_result"):
             result = st.session_state.rebuild_result
 
             st.success("✅ Workspace rebuilt successfully")
@@ -1638,6 +1637,12 @@ def render_sidebar(cfg):
             )
 
             del st.session_state.rebuild_result
+
+
+        if st.session_state.get("rebuild_error"):
+            st.error("❌ Workspace rebuild failed")
+            st.code(st.session_state.rebuild_error)
+        
 
         
 
@@ -1776,7 +1781,9 @@ defaults = {
     "sales_selection_generation": None,
     "vendor_selection_generation": None,
     "sidebar_hint_seen": True,
-    "rebuild_error": None
+    "rebuild_error": None,
+    "rebuild_result": None,
+    "confirm_rebuild_workspace": False
 }
 
     
