@@ -313,7 +313,7 @@ def rebuild_google_workspace(cfg: Config):
     logger = StatusLogger()
     logger.info("Starting Google Workspace rebuild")
 
-    # 1️⃣ Create main folder
+    # 1 Create main folder
     main_folder = drive.files().create(
         body={
             "name": "Reporting Pipeline Workspace",
@@ -324,22 +324,31 @@ def rebuild_google_workspace(cfg: Config):
 
     main_id = main_folder["id"]
 
-    # 2️⃣ Create subfolders
+    # 2 Create subfolders
     folders = create_folder_tree(drive, main_id)
 
-    # 3️⃣ Copy content
+    # 3 Copy content
     copy_documentation(drive, folders, cfg, main_id)
     copy_master_files(drive, folders, cfg)
 
     config_ids = handle_utilities(drive, folders, cfg, main_id)
 
-    # 4️⃣ Apply new folder IDs to cfg (in‑memory)
+    # 4 Apply new folder IDs to cfg (in‑memory)
     apply_new_folder_ids_to_cfg(drive, cfg, folders)
 
+    # 5 Apply Permissions
+    drive.permissions().create(
+        fileId=main_id,
+        body={
+            "type": "anyone",
+            "role": "writer",
+        },
+        fields="id",
+    ).execute()
+    
+
     return {
-        "message": (
-            "Please replace the following secrets in Streamlit:\n\n"
-            f"CONFIG_FILE_ID = {config_ids["prod_config_file_id"]}\n"
-            f"DEV_CONFIG_FILE_ID = {config_ids["dev_config_file_id"]}"
-        )
+        "Line 1": ("Please replace the following secrets in Streamlit:"),
+        "Line 2": (f"CONFIG_FILE_ID = {config_ids["prod_config_file_id"]}\n"),
+        "Line 3": (f"DEV_CONFIG_FILE_ID = {config_ids["dev_config_file_id"]}")
     }
