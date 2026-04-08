@@ -1404,22 +1404,27 @@ def render_results(cfg):
                 width='stretch'
                 )
 
-def render_rebuild_status():    
-    if st.session_state.get("ui_phase") == UI_REBUILD_DONE:
+def render_rebuild_status():
+    if st.session_state.ui_phase == UI_REBUILD_RUNNING:
         with st.container(border=True):
+            st.subheader("🔄 Rebuilding Google Workspace")
+            st.info("Workspace rebuild is in progress. Please wait…")
 
-            if st.session_state.get("rebuild_error"):
+    elif st.session_state.ui_phase == UI_REBUILD_DONE:
+        with st.container(border=True):
+            if st.session_state.rebuild_error:
                 st.error("❌ Workspace rebuild failed")
-                st.code(st.session_state["rebuild_error"])
+                st.code(st.session_state.rebuild_error)
             else:
                 st.success("✅ Workspace rebuilt successfully")
+
+                if st.session_state.rebuild_result:
+                    st.json(st.session_state.rebuild_result)
 
             if st.button("⬅️ Return to app"):
                 st.session_state.rebuild_result = None
                 st.session_state.rebuild_error = None
-                st.session_state.ui_phase = UI_READY
-                st.rerun()
-
+                st.session_state.ui_phase = UI_UPLOAD
 
 
 def trigger_rebuild(cfg):
@@ -1640,8 +1645,11 @@ def render_sidebar(cfg):
                         return
                                         
                     
+                    
                     st.session_state.confirm_rebuild_workspace = False
-                    trigger_rebuild(cfg)
+                    st.session_state.rebuild_requested = True
+                    st.rerun()
+
 
 
                     
@@ -1798,7 +1806,8 @@ defaults = {
     "sidebar_hint_seen": True,
     "rebuild_error": None,
     "rebuild_result": None,
-    "confirm_rebuild_workspace": False
+    "confirm_rebuild_workspace": False,
+    "rebuild_requested": False
 }
 
     
@@ -1815,6 +1824,10 @@ st.session_state.auth_required = creds is None
 # --- STATE INIT ---
 init_thread_state()
 init_pipeline_state()
+
+if st.session_state.get("rebuild_requested"):
+    st.session_state.rebuild_requested = False
+    trigger_rebuild(cfg)
 
 # --- Finish OAuth inline when redirect comes back (this is in the NEW TAB) ---
 params = st.query_params
