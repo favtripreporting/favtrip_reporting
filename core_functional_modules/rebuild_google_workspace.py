@@ -349,6 +349,6 @@ def rebuild_google_workspace(cfg: Config):
 
     return {
         "Line 1": ("Please replace the following secrets in Streamlit:"),
-        "Line 2": (f"CONFIG_FILE_ID = {config_ids["prod_config_file_id"]}\n"),
-        "Line 3": (f"DEV_CONFIG_FILE_ID = {config_ids["dev_config_file_id"]}")
+        "Line 2": (f"CONFIG_FILE_ID = '{config_ids["prod_config_file_id"]}'"),
+        "Line 3": (f"DEV_CONFIG_FILE_ID = '{config_ids["dev_config_file_id"]}'")
     }
