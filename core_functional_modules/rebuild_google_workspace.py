@@ -8,6 +8,9 @@ from core_functional_modules.google_client import load_valid_token, services
 from core_functional_modules.config_store import save_config_to_drive
 from core_functional_modules.logger import StatusLogger
 
+def is_drive_link(value: str) -> bool:
+    return value.startswith("http")
+
 
 def extract_drive_id(value: str) -> str:
     """
@@ -64,29 +67,38 @@ def create_folder_tree(drive, root_id):
     return folders
 
 def copy_master_files(drive, folders, cfg):
-    # CALC spreadsheet
-    if cfg.CALC_SPREADSHEET_ID:
-        source_id = extract_drive_id(cfg.CALC_SPREADSHEET_ID)
+
+    def handle_master(attr_name):
+        value = getattr(cfg, attr_name, None)
+        if not value:
+            return
+
+        # If link → keep link, do NOT copy
+        if is_drive_link(value):
+            cfg_value = extract_drive_id(value)
+            setattr(cfg, attr_name, cfg_value)
+            return
+
+        # If raw ID → copy into Master folder
+        source_id = extract_drive_id(value)
+        meta = drive.files().get(
+            fileId=source_id,
+            fields="name",
+        ).execute()
 
         copied = drive.files().copy(
             fileId=source_id,
-            body={"parents": [folders["01_MASTER"]]},
+            body={
+                "name": meta["name"],
+                "parents": [folders["01_MASTER"]],
+            },
             fields="id",
         ).execute()
 
-        cfg.CALC_SPREADSHEET_ID = copied["id"]
+        setattr(cfg, attr_name, copied["id"])
 
-    # BEV mapping file
-    if cfg.BEV_MAPPING_LINK:
-        source_id = extract_drive_id(cfg.BEV_MAPPING_LINK)
-
-        copied = drive.files().copy(
-            fileId=source_id,
-            body={"parents": [folders["01_MASTER"]]},
-            fields="id",
-        ).execute()
-
-        cfg.BEV_MAPPING_LINK = copied["id"]
+    handle_master("CALC_SPREADSHEET_ID")
+    handle_master("BEV_MAPPING_LINK")
 
 
 def find_single_folder_by_name(
@@ -138,9 +150,18 @@ def copy_documentation(drive, folders, cfg, main_id):
     ).execute()
 
     for f in resp.get("files", []):
+        meta = drive.files().get(
+            fileId=f["id"],
+            fields="name",
+        ).execute()
+
         drive.files().copy(
             fileId=f["id"],
-            body={"parents": [folders["00_DOCS"]]},
+            body={
+                "name": meta["name"],
+                "parents": [folders["00_DOCS"]],
+            },
+            fields="id",
         ).execute()
 
 
@@ -152,25 +173,45 @@ def handle_utilities(drive, folders, cfg, main_id):
 
     def create_config_files_in_utilities(drive, utilities_folder_id, cfg):
         """
-        Create NEW DEV and PROD config JSON files inside the Utilities folder.
-        Returns both file IDs.
+        Create a base config file, rename it to *_dev,
+        then copy it and rename the copy to *_prod.
         """
-
         payload = cfg.to_drive_defaults()
 
-        dev_config_id = save_config_to_drive(
+        # 1️⃣ Create initial config file (no suffix yet)
+        base_config_id = save_config_to_drive(
             drive,
             payload,
             file_id=None,
-            parent_folder_id=utilities_folder_id
+            parent_folder_id=utilities_folder_id,
         )
 
-        prod_config_id = save_config_to_drive(
-            drive,
-            payload,
-            file_id=None,
-            parent_folder_id=utilities_folder_id
-        )
+        # 2️⃣ Fetch its actual name from Drive
+        meta = drive.files().get(
+            fileId=base_config_id,
+            fields="name",
+        ).execute()
+
+        original_name = meta["name"]
+        stem = original_name.rsplit(".json", 1)[0]
+
+        dev_name = f"{stem}_dev.json"
+        prod_name = f"{stem}_prod.json"
+
+        # 3️⃣ Rename the original file → *_dev.json
+        drive.files().update(
+            fileId=base_config_id,
+            body={"name": dev_name},
+        ).execute()
+
+        dev_config_id = base_config_id
+
+        # 4️⃣ Copy DEV → PROD
+        prod_config_id = drive.files().copy(
+            fileId=dev_config_id,
+            body={"name": prod_name},
+            fields="id",
+        ).execute()["id"]
 
         return {
             "dev_config_file_id": dev_config_id,
@@ -200,10 +241,18 @@ def handle_utilities(drive, folders, cfg, main_id):
         if f["name"] == EXCLUDED_NAME:
             continue
 
+        meta = drive.files().get(
+            fileId=f['id'],
+            fields="name",
+        ).execute()
+
         copied = drive.files().copy(
-            fileId=f["id"],
-            body={"parents": [folders["99_UTIL"]]},
-            fields="id,name",
+            fileId=f['id'],
+            body={
+                "name": meta["name"],
+                "parents": [old_utilities_folder_id],
+            },
+            fields="id",
         ).execute()
 
         old_to_new_id[f["id"]] = copied["id"]
@@ -283,7 +332,7 @@ def rebuild_google_workspace(cfg: Config):
     config_ids = handle_utilities(drive, folders, cfg, main_id)
 
     # 4️⃣ Apply new folder IDs to cfg (in‑memory)
-    apply_new_folder_ids_to_cfg(cfg, folders)
+    apply_new_folder_ids_to_cfg(drive, cfg, folders)
 
     return {
         "main_folder_id": main_id,
