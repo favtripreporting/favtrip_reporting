@@ -1599,18 +1599,12 @@ def render_sidebar(cfg):
 
                     try:                        
                         result = rebuild_google_workspace(cfg)
-
-                        st.success("✅ Google Workspace rebuilt")
-
-                        st.markdown("### Config File IDs - Update Streamlit Secrets")
-                        st.code(
-                            f"DEV_CONFIG_FILE_ID={result['dev_config_file_id']}\n"
-                            f"CONFIG_FILE_ID={result['prod_config_file_id']}",
-                            language="text"
-                        )
+                        
+                        st.session_state.rebuild_result = result
+                        st.session_state.confirm_rebuild = False
 
                     except Exception as e:
-                        st.error(f"Rebuild failed: {e}")
+                        st.session_state.rebuild_error = str(e)
                     finally:
                         st.session_state.pop("confirm_rebuild_workspace", None)
                         st.rerun()
@@ -1625,6 +1619,25 @@ def render_sidebar(cfg):
         
         if st.session_state.get("confirm_rebuild_workspace"):
             confirm_rebuild_workspace()
+
+        
+        if st.session_state.get("rebuild_running"):
+            st.info("Rebuild in progress…")
+            st.stop()
+
+        
+        if "rebuild_result" in st.session_state:
+            result = st.session_state.rebuild_result
+
+            st.success("✅ Workspace rebuilt successfully")
+
+            st.code(
+                f"DEV_CONFIG_FILE_ID={result['dev_config_file_id']}\n"
+                f"CONFIG_FILE_ID={result['prod_config_file_id']}",
+                language="text"
+            )
+
+            del st.session_state.rebuild_result
 
         
 
@@ -1762,7 +1775,8 @@ defaults = {
     "reset_generation": 0,
     "sales_selection_generation": None,
     "vendor_selection_generation": None,
-    "sidebar_hint_seen": True
+    "sidebar_hint_seen": True,
+    "rebuild_error": None
 }
 
     
