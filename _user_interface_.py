@@ -1404,28 +1404,27 @@ def render_results(cfg):
                 width='stretch'
                 )
 
-def render_rebuild_status():
-    if st.session_state.get("ui_phase") == UI_REBUILD_RUNNING:
-        with st.container(border=True):
-            st.subheader("🔄 Rebuilding Google Workspace")
-            st.info("Workspace rebuild is in progress. Please wait...")
-            st.spinner("Rebuilding...")
-
+def render_rebuild_status():    
     if st.session_state.get("ui_phase") == UI_REBUILD_DONE:
         with st.container(border=True):
+
             if st.session_state.get("rebuild_error"):
                 st.error("❌ Workspace rebuild failed")
                 st.code(st.session_state["rebuild_error"])
             else:
-                st.success("✅ Workspace rebuild completed successfully")
-                if st.session_state.get("rebuild_result"):
-                    st.json(st.session_state["rebuild_result"])
+                st.success("✅ Workspace rebuilt successfully")
+
+            if st.button("⬅️ Return to app"):
+                st.session_state.rebuild_result = None
+                st.session_state.rebuild_error = None
+                st.session_state.ui_phase = UI_READY
+                st.rerun()
+
 
 
 def trigger_rebuild(cfg):
     try:
         st.session_state.ui_phase = UI_REBUILD_RUNNING
-        st.rerun()
 
         result = rebuild_google_workspace(cfg)
 
@@ -1436,7 +1435,7 @@ def trigger_rebuild(cfg):
         st.session_state.rebuild_result = None
     finally:
         st.session_state.ui_phase = UI_REBUILD_DONE
-        st.rerun()
+        _rerun()
 
 def render_sidebar(cfg):
     with st.sidebar:
