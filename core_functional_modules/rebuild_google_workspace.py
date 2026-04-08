@@ -33,20 +33,6 @@ def create_folder_tree(drive, root_id):
 
     return folders
 
-def copy_documentation(drive, folders, cfg):
-    # old docs folder id should be in DEV config
-    old_docs_id = cfg.OLD_DOCUMENTATION_FOLDER_ID
-    resp = drive.files().list(
-        q=f"'{old_docs_id}' in parents and trashed=false",
-        fields="files(id,name)",
-    ).execute()
-
-    for f in resp.get("files", []):
-        drive.files().copy(
-            fileId=f["id"],
-            body={"parents": [folders["00_DOCS"]]},
-        ).execute()
-
 def copy_master_files(drive, folders, cfg):
     for key, file_id in cfg.MASTER_FILE_IDS.items():
         copied = drive.files().copy(
@@ -83,6 +69,26 @@ def find_single_folder_by_name(drive, name: str):
 
     return files[0]["id"]
 
+def copy_documentation(drive, folders, cfg):
+    # old docs folder id should be in DEV config
+    OLD_DOCUMENTATION_FOLDER_NAME = "00 Documentation"
+
+    # 1️⃣ Locate OLD utilities folder
+    old_docs_id = find_single_folder_by_name(
+        drive,
+        OLD_DOCUMENTATION_FOLDER_NAME
+    )
+
+    resp = drive.files().list(
+        q=f"'{old_docs_id}' in parents and trashed=false",
+        fields="files(id,name)",
+    ).execute()
+
+    for f in resp.get("files", []):
+        drive.files().copy(
+            fileId=f["id"],
+            body={"parents": [folders["00_DOCS"]]},
+        ).execute()
 
 
 def handle_utilities(drive, folders, cfg):
