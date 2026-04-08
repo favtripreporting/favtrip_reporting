@@ -337,8 +337,9 @@ def rebuild_google_workspace(cfg: Config):
     apply_new_folder_ids_to_cfg(drive, cfg, folders)
 
     return {
-        "main_folder_id": main_id,
-        "folders": folders,
-        "dev_config_file_id": config_ids["dev_config_file_id"],
-        "prod_config_file_id": config_ids["prod_config_file_id"],
+        "message": (
+            "Please replace the following secrets in Streamlit:\n\n"
+            f"CONFIG_FILE_ID = {config_ids["prod_config_file_id"]}\n"
+            f"DEV_CONFIG_FILE_ID = {config_ids["dev_config_file_id"]}"
+        )
     }
