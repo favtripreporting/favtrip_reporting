@@ -99,6 +99,7 @@ from core_functional_modules.logger import StatusLogger
 from core_functional_modules.pipeline import run_pipeline
 from core_functional_modules.drive_utils import upload_to_drive, get_or_create_subfolder
 from core_functional_modules.pipeline_bus import get_pipeline_queue
+from core_functional_modules.rebuild_google_workspace import rebuild_google_workspace
 
 
 # =========================
@@ -1440,13 +1441,27 @@ def render_sidebar(cfg):
             ):
                 st.session_state["confirm_push_dev_to_prod"] = True
             
+            
+            st.divider()
+            st.subheader("🧨 Dangerous DEV Tools")
+
+
             if st.button(
                     "🚀 Push Code Changes to Prod",
                     type="primary",
                     width="stretch",
                     help="Merge the dev branch directly into main via GitHub",
                 ):
-                    st.session_state["confirm_merge_dev_to_main"] = True
+                    st.session_state["confirm_merge_dev_to_main"] = True            
+        
+            if st.button(
+                    "🛠️ Rebuild Google Workspace",
+                    type="primary",
+                    width="stretch",
+                    help="Creates a brand-new folder tree and rebinds all DEV config IDs"
+                ):
+                    st.session_state["confirm_rebuild_workspace"] = True
+
 
 
 
@@ -1550,6 +1565,56 @@ def render_sidebar(cfg):
                 if st.button("❌ Cancel", width="stretch"):
                     st.session_state.pop("confirm_merge_dev_to_main", None)
                     st.rerun()
+        
+        @st.dialog("⚠️ Confirm Google Workspace Rebuild")
+        def confirm_rebuild_workspace():
+            st.markdown("""
+            **This will create an entirely new Google Drive workspace.**
+
+            ✅ A new main folder will be created  
+            ✅ All folder IDs will be replaced  
+            ❌ This action cannot be undone  
+
+            **DEV ONLY**
+            """)
+
+            confirm = st.checkbox("I understand this is destructive")
+            password = st.text_input("Enter admin password", type="password")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("❌ Cancel", width="stretch"):
+                    st.session_state.pop("confirm_rebuild_workspace", None)
+                    st.rerun()
+
+            with col2:
+                if st.button("✅ Rebuild Workspace", type="primary", width="stretch"):
+                    if not confirm:
+                        st.error("You must confirm the action.")
+                        return
+                    if password != "admin":
+                        st.error("Incorrect password.")
+                        return
+
+                    try:                        
+                        result = rebuild_google_workspace(cfg)
+
+                        st.success("✅ Google Workspace rebuilt")
+
+                        st.markdown("### Config File IDs - Update Streamlit Secrets")
+                        st.code(
+                            f"DEV_CONFIG_FILE_ID={result['dev_config_file_id']}\n"
+                            f"CONFIG_FILE_ID={result['prod_config_file_id']}",
+                            language="text"
+                        )
+
+                    except Exception as e:
+                        st.error(f"Rebuild failed: {e}")
+                    finally:
+                        st.session_state.pop("confirm_rebuild_workspace", None)
+                        st.rerun()
+
 
         # Trigger dialog
         if st.session_state.get("confirm_push_dev_to_prod"):
@@ -1557,6 +1622,9 @@ def render_sidebar(cfg):
         
         if st.session_state.get("confirm_merge_dev_to_main"):
             confirm_merge_dev_to_main()
+        
+        if st.session_state.get("confirm_rebuild_workspace"):
+            confirm_rebuild_workspace()
 
         
 
