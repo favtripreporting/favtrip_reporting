@@ -1,3 +1,4 @@
+import streamlit as st
 from typing import Dict
 import re
 
@@ -285,11 +286,12 @@ def apply_new_folder_ids_to_cfg(drive, cfg, folders):
     cfg.WORKHORSE_FOLDER_ID = folders["03_WORK"]
     cfg.UTILITIES_FOLDER_ID = folders["99_UTIL"]
 
+    
     DEV_CONFIG_FILE_ID = (
-        cfg.DEV_CONFIG_FILE_ID
-        if hasattr(cfg, "DEV_CONFIG_FILE_ID")
-        else None
+        st.secrets.get("DEV_CONFIG_FILE_ID")
+        or None
     )
+
 
     if not DEV_CONFIG_FILE_ID:
         raise RuntimeError("DEV_CONFIG_FILE_ID not set")
