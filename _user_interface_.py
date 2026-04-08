@@ -124,6 +124,12 @@ PIPE_STATUS_DONE = "done"
 PIPE_STATUS_ERROR = "error"
 
 
+
+UI_REBUILD_RUNNING = "REBUILD_RUNNING"
+UI_REBUILD_DONE = "REBUILD_DONE"
+
+
+
 class UIError(Exception):
     """
     Base class for errors that should show a friendly message
@@ -1600,14 +1606,19 @@ def render_sidebar(cfg):
                     if password != "admin":
                         st.session_state.rebuild_error = "Incorrect password."
                         return
+                                        
+                    st.session_state.confirm_rebuild_workspace = False
+                    st.session_state.ui_phase = UI_REBUILD_RUNNING
 
-                    try:
-                        result = rebuild_google_workspace(cfg)
-                        st.session_state.rebuild_result = result
-                        st.session_state.rebuild_error = None
-                        st.session_state.confirm_rebuild_workspace = False
-                    except Exception as e:
-                        st.session_state.rebuild_error = str(e)
+                    with st.spinner("Rebuilding Google Workspace..."):
+                        try:
+                            result = rebuild_google_workspace(cfg)
+                            st.session_state.rebuild_result = result
+                            st.session_state.ui_phase = UI_REBUILD_DONE
+                        except Exception as e:
+                            st.session_state.rebuild_error = str(e)
+                            st.session_state.ui_phase = UI_RESULT_ERROR
+
                     
 
 
@@ -1625,25 +1636,27 @@ def render_sidebar(cfg):
         # Rebuild results (persistent across reruns)
         # ------------------------------------------------------------
 
-        if st.session_state.get("rebuild_result"):
-            result = st.session_state.rebuild_result
+        if st.session_state.ui_phase == UI_REBUILD_DONE:
 
-            st.success("✅ Workspace rebuilt successfully")
+            if st.session_state.get("rebuild_result"):
+                result = st.session_state.rebuild_result
 
-            st.code(
-                f"DEV_CONFIG_FILE_ID={result['dev_config_file_id']}\n"
-                f"CONFIG_FILE_ID={result['prod_config_file_id']}",
-                language="text"
-            )
+                st.success("✅ Workspace rebuilt successfully")
 
-            del st.session_state.rebuild_result
+                st.code(
+                    f"DEV_CONFIG_FILE_ID={result['dev_config_file_id']}\n"
+                    f"CONFIG_FILE_ID={result['prod_config_file_id']}",
+                    language="text"
+                )
+
+                # Cleanup so it does not re-render unexpectedly                                
+                if st.button("Dismiss rebuild results"):
+                    del st.session_state.rebuild_result
 
 
-        if st.session_state.get("rebuild_error"):
-            st.error("❌ Workspace rebuild failed")
-            st.code(st.session_state.rebuild_error)
-        
-
+            if st.session_state.get("rebuild_error"):
+                st.error("❌ Workspace rebuild failed")
+                st.code(st.session_state.rebuild_error)
         
 
 def render_upload_different_button(cfg):
