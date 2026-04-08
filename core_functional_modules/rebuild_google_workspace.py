@@ -42,15 +42,21 @@ def copy_master_files(drive, folders, cfg):
         ).execute()
         cfg.MASTER_FILE_IDS[key] = copied["id"]
 
-def find_single_folder_by_name(drive, name: str):
+def find_single_folder_by_name(
+    drive,
+    name: str,
+    parent_id: str,
+):
     """
-    Find exactly one non-trashed Google Drive folder by name.
+    Find exactly one non-trashed Google Drive folder by name
+    that is a direct child of parent_id.
     Raises if none or more than one are found.
     """
     resp = drive.files().list(
         q=(
             "mimeType='application/vnd.google-apps.folder' "
             f"and name='{name}' "
+            f"and '{parent_id}' in parents "
             "and trashed=false"
         ),
         fields="files(id,name,parents)",
@@ -59,24 +65,24 @@ def find_single_folder_by_name(drive, name: str):
     files = resp.get("files", [])
 
     if not files:
-        raise RuntimeError(f"Utilities folder not found by name: {name}")
+        raise RuntimeError(
+            f"Folder '{name}' not found under parent {parent_id}"
+        )
 
     if len(files) > 1:
         raise RuntimeError(
-            f"Multiple folders named '{name}' found. "
-            "Cannot safely choose one."
+            f"Multiple folders named '{name}' found under parent {parent_id}"
         )
 
     return files[0]["id"]
 
-def copy_documentation(drive, folders, cfg):
-    # old docs folder id should be in DEV config
+def copy_documentation(drive, folders, cfg, main_id):
     OLD_DOCUMENTATION_FOLDER_NAME = "00 Documentation"
 
-    # 1️⃣ Locate OLD utilities folder
     old_docs_id = find_single_folder_by_name(
         drive,
-        OLD_DOCUMENTATION_FOLDER_NAME
+        OLD_DOCUMENTATION_FOLDER_NAME,
+        parent_id=main_id,
     )
 
     resp = drive.files().list(
@@ -91,7 +97,7 @@ def copy_documentation(drive, folders, cfg):
         ).execute()
 
 
-def handle_utilities(drive, folders, cfg):
+def handle_utilities(drive, folders, cfg, main_id):
     """
     Locate the old Utilities folder by name, copy its contents
     into the new Utilities folder, and update any referenced IDs.
@@ -130,8 +136,10 @@ def handle_utilities(drive, folders, cfg):
     # 1️⃣ Locate OLD utilities folder
     old_utilities_folder_id = find_single_folder_by_name(
         drive,
-        UTILITIES_FOLDER_NAME
+        UTILITIES_FOLDER_NAME,
+        parent_id=main_id,
     )
+
 
     # 2️⃣ Copy files (excluding secrets)
     resp = drive.files().list(
@@ -210,7 +218,7 @@ def rebuild_google_workspace(cfg: Config):
     # 1️⃣ Create main folder
     main_folder = drive.files().create(
         body={
-            "name": "FavTrip Workspace",
+            "name": "Reporting Pipeline Workspace",
             "mimeType": "application/vnd.google-apps.folder",
         },
         fields="id",
@@ -222,10 +230,10 @@ def rebuild_google_workspace(cfg: Config):
     folders = create_folder_tree(drive, main_id)
 
     # 3️⃣ Copy content
-    copy_documentation(drive, folders, cfg)
+    copy_documentation(drive, folders, cfg, main_id)
     copy_master_files(drive, folders, cfg)
 
-    config_ids = handle_utilities(drive, folders, cfg)
+    config_ids = handle_utilities(drive, folders, cfg, main_id)
 
     # 4️⃣ Apply new folder IDs to cfg (in‑memory)
     apply_new_folder_ids_to_cfg(cfg, folders)
