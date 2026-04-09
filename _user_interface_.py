@@ -1531,7 +1531,7 @@ def render_sidebar(cfg):
                     
             if st.button(
                 "⏱️ Force File Renews",
-                type="secondary",
+                type="primary",
                 width="stretch",
                 help="Forces all user calculation files to be renewed the next time the user runs the pipeline",
             ):
