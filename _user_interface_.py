@@ -825,13 +825,22 @@ def render_run_options(cfg):
             options = []
             
             for key in KEY_LIST:
-                options.append(key)
+                if key != "PLU NOT FOUND":
+                    options.append(key)
+            options.append("PLU NOT FOUND")
             
             for sub_key in BEV_SUB_KEY_LIST:
-                options.append(sub_key)
+                if sub_key != "Unassigned":
+                    options.append(f"BEV-{sub_key}")
+
+            options.append(f"BEV-Unassigned")
 
             # Remove duplicates + sort
             options = sorted(set(options))
+
+            if "PLU NOT FOUND" in KEY_LIST:
+                options.append("PLU NOT FOUND")
+            
 
             selected_keys = st.multiselect(
                 "Keys to run",
