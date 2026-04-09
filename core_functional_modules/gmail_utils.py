@@ -158,7 +158,7 @@ def email_manager_report(gmail_svc, sender: str, to_list, cc_list, pdf_name, pdf
     msg["To"] = ", ".join(to_list)
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
-    msg.set_content(f"Hi team,\nAttached is the Manager Report ({location}).\nBackup link: {pdf_link}\n—Automated")
+    msg.set_content(f"Hi team,\nAttached is the Manager Report ({location}).\nBackup link: {pdf_link}\n—Sent from an automated reporting pipeline")
 
     msg.add_alternative(
         f"""
@@ -166,7 +166,7 @@ def email_manager_report(gmail_svc, sender: str, to_list, cc_list, pdf_name, pdf
         <p>Your manager report for store <b>{location}</b> is ready.</p>
         <p><a href='{pdf_link}'>Backup Link</a></p>
         <p>Attached: {pdf_name}</p>
-        <p>—Automated</p>
+        <p>—Sent from an automated reporting pipeline</p>
         """,
         subtype="html",
     )
@@ -201,20 +201,20 @@ def email_order_report(
         msg["Cc"] = ", ".join(cc_list)
 
     msg.set_content(
-        f"Hi {key} team,\n"
+        f"Hi {tag} team,\n"
         f"Your order report for {location} - {tag} is ready.\n"
         f"Google Sheet: {sheet_link}\n"
         f"Attached: {pdf_name}\n"
-        "—Automated"
+        "—Sent from an automated reporting pipeline"
     )
 
     msg.add_alternative(
         f"""
-        <p>Hi {key} team,</p>
+        <p>Hi {tag} team,</p>
         <p>Your order report for store <b>{location}</b> is ready.</p>
         <p><a href="{sheet_link}">Open Google Sheet</a></p>
         <p>Attached: {pdf_name}</p>
-        <p>—Automated</p>
+        <p>—Sent from an automated reporting pipeline</p>
         """,
         subtype="html",
     )
@@ -245,8 +245,7 @@ def email_error_report(
     ts: str,
     pdf_name: str,
     pdf_bytes: bytes,
-    sheet_link: str,
-    vendor_price_book_link: str
+    sheet_link: str
     ):
     msg = EmailMessage()
 
@@ -263,9 +262,8 @@ def email_error_report(
         f"The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.\n"
         f"Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.\n\n"
         f"Google Sheet: {sheet_link}\n"
-        f"Vendor Price Book: {vendor_price_book_link}"
         f"Attached: {pdf_name}\n"
-        "—Automated"
+        "—Sent from an automated reporting pipeline"
     )
 
     msg.add_alternative(
@@ -276,9 +274,136 @@ def email_error_report(
         <p>Please reply to this email once the Vendor Price Book is updated so that the user knows they can rerun the pipeline.</p>
         <p></p>
         <p><a href="{sheet_link}">Open Error Report in Google Sheets</a></p>
-        <p><a href="{vendor_price_book_link}">Edit Vendor Price Book in Google Sheets</a></p>
         <p>Attached: {pdf_name}</p>
-        <p>—Automated</p>
+        <p>—Sent from an automated reporting pipeline</p>
+        """,
+        subtype="html",
+    )
+
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=pdf_name,
+    )
+
+    return send_email(gmail_svc, sender, msg)
+
+def email_bev_error_report(
+    gmail_svc,
+    sender: str,
+    to_list,
+    cc_list,
+    ts: str,
+    pdf_name: str,
+    pdf_bytes: bytes,
+    sheet_link: str,
+    mapping_link: str
+    ):
+    msg = EmailMessage()
+
+    msg["Subject"] = f"Soft Alert – Unassigned Beverages Report – {ts}"
+    msg["From"] = sender
+    msg["To"] = ", ".join(to_list)
+
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+
+    msg.set_content(
+        f"Hi Technical Support Team,\n"
+        f"A user just ran the ordering pipeline successfully, however some beverages were not mapped to a sub-report-key / vendor.\n"
+        f"The BEV orders were still sent, however these unassigned beverages were included on their own order under BEV - UNASSIGNED.\n\n"
+        f"The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.\n"
+        f"To fix this error for future runs look at the Unassigned Beverages Report and add those Scan Codes to the Mapping File.\n"
+        f"Please reply to this email once the Mapping File is updated so that the user knows they can rerun the pipeline if needed.\n\n"
+        f"Beverage Mapping File: {mapping_link}\n"
+        f"Unassigned Beverages Google Sheet: {sheet_link}\n"
+        f"Attached: {pdf_name}\n"
+        "—Sent from an automated reporting pipeline"
+    )
+
+    msg.add_alternative(
+        f"""
+        <p>Hi Technical Support Team,</p>
+        <p>A user just ran the ordering pipeline successfully, however some beverages were not mapped to a sub-report-key / vendor.</p>
+        <p>The BEV orders were still sent; however, these unassigned beverages were included on their own order under <strong>BEV - UNASSIGNED</strong>.</p><p></p>
+        <p>The default recipient of the pipeline run is CC'd on this email for visibility and communication purposes.</p>
+        <p>To fix this error for future runs, please review the Unassigned Beverages Report and add those Scan Codes to the Mapping File.</p>
+        <p>Please reply to this email once the Mapping File is updated so that the user knows they can rerun the pipeline if needed.</p><p></p>
+        <p><a href="{mapping_link}">Open Beverage Mapping File</a></p>
+        <p><a href="{sheet_link}">Open Unassigned Beverages Google Sheet</a></p>
+        <p>Attached: {pdf_name}</p>
+        <p>—Sent from an automated reporting pipeline</p>
+        """,
+        subtype="html",
+    )
+
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=pdf_name,
+    )
+
+    return send_email(gmail_svc, sender, msg)
+
+def email_large_case_alert_report(
+    gmail_svc,
+    sender: str,
+    to_list,
+    cc_list,
+    ts: str,
+    location: str,
+    threshold: int,
+    pdf_name: str,
+    pdf_bytes: bytes,
+    sheet_link: str,
+):
+    """
+    Send a soft-alert email when FULL order lines exceed a case threshold.
+
+    This is a NON-blocking informational alert intended for
+    technical review, not end users.
+    """
+
+    msg = EmailMessage()
+
+    msg["Subject"] = (
+        f"Soft Alert – High Case Quantities – {location} – {ts}"
+    )
+    msg["From"] = sender
+    msg["To"] = ", ".join(to_list)
+
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+
+    msg.set_content(
+        f"""Hi Technical Support Team,
+
+        This is a soft alert generated by the ordering pipeline.
+
+        One or more items exceeded the configured cases-to-order
+        threshold of {threshold}. This usually is a result of Units Per Case being set to 1 in the Vendor Price Book by mistake.
+
+        This alert does NOT block the pipeline and the order reports were still sent.
+
+        Google Sheet:
+        {sheet_link}
+
+        Attached: {pdf_name}
+
+        — Sent from an automated reporting pipeline
+        """
+    )
+
+    msg.add_alternative(
+        f"""
+        <p><strong>Soft Alert – High Case Quantities</strong></p>
+        <p>One or more items exceeded the configured cases-to-order threshold of {threshold}. This usually is a result of Units Per Case being set to 1 in the Vendor Price Book by mistake.</p>
+        <p>This alert does NOT block the pipeline and the order reports were still sent.</p>
+        <p><a href="{sheet_link}">Open Alert Sheet in Google Sheets</a></p>
+        <p>Attached: {pdf_name}</p>
+        <p>— Sent from an automated reporting pipeline</p>
         """,
         subtype="html",
     )

@@ -162,6 +162,7 @@ from __future__ import annotations
 import random
 import time
 from typing import Any, Dict, List
+import requests
 
 
 def list_sheets(svc, spreadsheet_id: str) -> List[Dict[str, Any]]:
@@ -173,6 +174,31 @@ def get_sheet(sheets, title: str):
         if s["properties"]["title"] == title:
             return s["properties"]
     return None
+
+
+def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str, portrait: bool = True,) -> bytes:
+    params = {
+        "format": fmt,
+        "gid": gid,
+    }
+
+    # PDF-only layout options
+    if fmt.lower() == "pdf":
+        params.update({
+            "portrait": "true" if portrait else "false",
+            "fitw": "true",   # fit to width
+        })
+
+    # Build query string
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?{query}"
+
+    headers = {"Authorization": f"Bearer {creds.token}"}
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
+    return r.content
+
 
 
 def delete_sheet(svc, spreadsheet_id: str, title: str):
@@ -493,3 +519,87 @@ def _force_column_as_text(header: list[str], rows: list[list], header_name: str)
             r2[idx] = "'" + str(r2[idx])
         out.append(r2)
     return out
+
+def autoresize_columns(sheets_svc, spreadsheet_id, sheet_id):
+    sheets_svc.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={
+            "requests": [{
+                "autoResizeDimensions": {
+                    "dimensions": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": 0,
+                        "endIndex": 26  # A–Z (adjust if needed)
+                    }
+                }
+            }]
+        }
+    ).execute()
+
+def force_named_range_timestamp(svc, spreadsheet_id: str, named_range: str = "_update"):
+
+    # 1) Resolve named range -> A1 notation
+    meta = svc.spreadsheets().get(
+        spreadsheetId=spreadsheet_id,
+        includeGridData=False
+    ).execute()
+
+    named_ranges = meta.get("namedRanges", [])
+    nr = next((n for n in named_ranges if n["name"] == named_range), None)
+
+    if not nr:
+        raise ValueError(f'Named range "{named_range}" was not found')
+
+    # Convert GridRange → A1 notation
+    rng = nr["range"]
+    sheet_id = rng["sheetId"]
+
+    sheet = next(
+        s for s in meta["sheets"]
+        if s["properties"]["sheetId"] == sheet_id
+    )
+    title = sheet["properties"]["title"]
+
+    def col_letter(i: int) -> str:
+        out = ""
+        i += 1
+        while i:
+            i, r = divmod(i - 1, 26)
+            out = chr(65 + r) + out
+        return out
+
+    start_col = col_letter(rng["startColumnIndex"])
+    end_col = col_letter(rng["endColumnIndex"] - 1)
+
+    start_row = rng["startRowIndex"] + 1
+    end_row = rng["endRowIndex"]
+
+    a1 = f"'{title}'!{start_col}{start_row}:{end_col}{end_row}"
+
+    # 2) Write =NOW()
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueInputOption="USER_ENTERED",
+        body={"values": [["=NOW()"]]}
+    ).execute()
+
+    # 3) Read evaluated value back
+    res = svc.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueRenderOption="UNFORMATTED_VALUE"
+    ).execute()
+
+    values = res.get("values")
+    if not values:
+        raise RuntimeError(f'Failed to read evaluated value for "{named_range}"')
+
+    # 4) Write values-only (freeze timestamp)
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueInputOption="RAW",
+        body={"values": values}
+    ).execute()

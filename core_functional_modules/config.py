@@ -234,6 +234,8 @@ def _coerce_json(v: Any) -> Dict[str, Any]:
 
 @dataclass
 class Config:
+    NON_PERSISTED_FIELDS = set()  
+  
     # IDs and basic settings
     CALC_SPREADSHEET_ID: str = "1ibkGkQ2khYMJydeenJkTzC4KoLQAyBZW_esQrbjSHXs"
     INCOMING_FOLDER_ID: str = "1jJE3r9DOHXwBdd94E6ZhxBBH9xvSjI-b"
@@ -246,6 +248,7 @@ class Config:
     GID_MANAGER_PDF: str = "1921812573"
     GID_ORDER_CSV: str = "1875928148"
     GID_ERROR_REPORT: str = "1581903111"
+    GID_BEV_ERRORS: str = "72711538"
     LOCATION_SHEET_TITLE: str = "REFR: Values"
     LOCATION_NAMED_RANGE: str = "_locations"
     TIMESTAMP_TZ: str = "America/Chicago"
@@ -274,6 +277,10 @@ class Config:
     USE_AUTO_ROLLOVER_IF_ONE_WEEK: bool = True
     START_DAY_OF_WEEK: str = "Sunday"    # Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Any
     END_DAY_OF_WEEK: str = "Saturday"    # Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Any
+    
+    SOFT_CASES_ALERT_ENABLED: bool = True
+    SOFT_CASES_ALERT_THRESHOLD: int = 10
+
 
     # Cleanup
     OUTPUT_TIME_TO_LIFE: int = 30
@@ -281,7 +288,7 @@ class Config:
     USER_TIME_TO_LIFE: int = 90
 
     #Other
-    VENDOR_PRICE_BOOK_LINK: str = "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"
+    BEV_MAPPING_LINK: str = "https://docs.google.com/spreadsheets/d/1O6MtF-GM0VayqMr_v3oJC5PnRK5yv6biiDtA_qw-Z3g/"
 
     @staticmethod
     def load(env_path: Optional[Path] = None) -> "Config":
@@ -305,6 +312,7 @@ class Config:
             GID_MANAGER_PDF=str(_get_secret("GID_MANAGER_PDF", "1921812573")),
             GID_ORDER_CSV=str(_get_secret("GID_ORDER_CSV", "1875928148")),
             GID_ERROR_REPORT=str(_get_secret("GID_ERROR_REPORT", "1581903111")),
+            GID_BEV_ERRORS=str(_get_secret("GID_BEV_ERRORS", "72711538")),
             LOCATION_SHEET_TITLE=str(_get_secret("LOCATION_SHEET_TITLE", "REFR: Values")),
             LOCATION_NAMED_RANGE=str(_get_secret("LOCATION_NAMED_RANGE", "_locations")),
             TEMPLATE_UPDATE_RANGE=str(_get_secret("TEMPLATE_UPDATE_RANGE", "_update")),
@@ -346,31 +354,75 @@ class Config:
             START_DAY_OF_WEEK=str(_get_secret("START_DAY_OF_WEEK", "Sunday")),
             END_DAY_OF_WEEK=str(_get_secret("END_DAY_OF_WEEK", "Saturday")),
 
-            VENDOR_PRICE_BOOK_LINK=str(_get_secret("VENDOR_PRICE_BOOK_LINK", "https://docs.google.com/spreadsheets/d/19hVdHpiWV50JZDVPGo_27KwxC3_hmS5477ZamfwsLj0/edit?gid=978627111#gid=978627111"))
+            
+            SOFT_CASES_ALERT_ENABLED=_coerce_bool(_get_secret("SOFT_CASES_ALERT_ENABLED", "true")),
+            SOFT_CASES_ALERT_THRESHOLD=int(_get_secret("SOFT_CASES_ALERT_THRESHOLD", 10)),
+
+            BEV_MAPPING_LINK=str(_get_secret("BEV_MAPPING_LINK", "https://docs.google.com/spreadsheets/d/1O6MtF-GM0VayqMr_v3oJC5PnRK5yv6biiDtA_qw-Z3g/")),
         )
 
+        normalized = {}
+        for k, v in cfg.REPORT_KEY_RECIPIENTS.items():
+            if isinstance(k, (list, tuple)):
+                if len(k) == 2:
+                    normalized[(k[0], k[1], None)] = v
+                elif len(k) == 3:
+                    normalized[tuple(k)] = v
+            else:
+                # defensive fallback
+                normalized[(None, k, None)] = v
+
+        cfg.REPORT_KEY_RECIPIENTS = normalized
+
+
         # Optional overlay from Drive JSON config (if creds + file present)
+        # ---------------- Drive-backed config overlay ----------------
         try:
             import streamlit as st
             from core_functional_modules.google_client import load_valid_token, services
             from core_functional_modules.config_store import load_config_from_drive
 
-            if hasattr(st, "secrets"):
-                CONFIG_FILE_ID = st.secrets.get("CONFIG_FILE_ID")
+            DEV_ENVIRONMENT = _coerce_bool(_get_secret("DEV_ENVIRONMENT", False))
+            DEV_CONFIG_FILE_ID = str(_get_secret("DEV_CONFIG_FILE_ID", "") or "").strip()
+            CONFIG_FILE_ID = str(_get_secret("CONFIG_FILE_ID", "") or "").strip()
+
+            # Select which config file ID to READ from
+            if DEV_ENVIRONMENT and DEV_CONFIG_FILE_ID:
+                active_config_file_id = DEV_CONFIG_FILE_ID
+            else:
+                active_config_file_id = CONFIG_FILE_ID or None
 
             creds = load_valid_token(cfg.SCOPES)
             if creds:
                 _sheets, drive, _gmail = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
-                overrides = load_config_from_drive(drive, CONFIG_FILE_ID or None)  # {} if not found
-                if isinstance(overrides, dict) and overrides:
+
+                overrides = {}
+                
+                # 1️⃣ Try DEV config first (if enabled)
+                if DEV_ENVIRONMENT and DEV_CONFIG_FILE_ID:
+                    overrides = load_config_from_drive(drive, DEV_CONFIG_FILE_ID)
+
+                # 2️⃣ Fallback to PROD config if DEV missing/empty
+                if not overrides and CONFIG_FILE_ID:
+                    overrides = load_config_from_drive(drive, CONFIG_FILE_ID)
+
+                # 3️⃣ Apply overrides if any
+                if isinstance(overrides, dict):
                     for k, v in overrides.items():
                         if hasattr(cfg, k):
                             setattr(cfg, k, v)
-        except Exception as e:
-            # Fail-open: if Drive/token not ready yet, just return base cfg
-            st.error(f"Drive config load failed: {e}")
 
+        except Exception:
+            # Fail-open by design
+            
+            import traceback
+            print("[Config] Drive overlay failed:", e)
+            traceback.print_exc()
+
+            #pass
+        
         return cfg
+
 
     # -------------------------------------------------------------------------
     # .env serialization (optional helper)
@@ -394,3 +446,14 @@ class Config:
         if env_path is None:
             env_path = Path.cwd() / ".env"
         env_path.write_text(self.to_env(), encoding="utf-8")
+    
+
+    
+    def to_drive_defaults(self) -> dict:
+        return {
+            k: v
+            for k, v in vars(self).items()
+            if not k.startswith("_")
+            and k not in self.NON_PERSISTED_FIELDS
+        }
+

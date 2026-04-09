@@ -94,29 +94,27 @@ from .sheets_utils import (
     delete_sheet, copy_sheet_as, copy_first_sheet_as, refresh_sheets_with_prefix, refresh_sheets_with_prefix_chunked,
     get_value, first_gid,
     get_first_sheet_meta, get_values_2d, add_blank_sheet,
-    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet
+    add_or_replace_sheet, put_values_2d, _force_column_as_text, delete_row_indices, delete_rows_range, copy_sheet_to_another_spreadsheet, autoresize_columns, export_sheet
 )
 from .drive_utils import find_latest_sheet, upload_to_drive, _rfc3339, trash_file, cleanup_folder_by_age, find_sheet_by_name, copy_file_to_folder, rename_file, get_or_create_subfolder
-from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report
+from .gmail_utils import send_email, email_manager_report, email_order_report, email_error_report, email_bev_error_report, email_large_case_alert_report
 
 CSV_MIME = "text/csv"
 
 
-def clean_tag(s: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", s.strip()).strip("-") or "UNKNOWN"
+def clean_tag(s: str | None) -> str | None:
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")
+
 
 
 import requests
 from io import BytesIO
 from openpyxl import Workbook
-
-
-def export_sheet(creds, spreadsheet_id: str, gid: str | int, fmt: str) -> bytes:
-    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format={fmt}&gid={gid}"
-    headers = {"Authorization": f"Bearer {creds.token}"}
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    return r.content
 
 
 def timestamp_now(tz: str, fmt: str) -> str:
@@ -211,7 +209,7 @@ def _parse_sheet_date(cell: str | int | float, include_time: bool = False) -> da
 
     return None
 
-def _find_header_and_date_col(values2d):
+def _find_header_and_date_col(values2d, firstheader, col=""):
     """
     Find the header row whose first cell == 'Store', and the 'Date' column index.
     Returns (header_row_ix, date_col_ix) or (None, None).
@@ -219,7 +217,7 @@ def _find_header_and_date_col(values2d):
     header_ix = None
     for r, row in enumerate(values2d):
         c0 = (row[0].strip() if row and isinstance(row[0], str) else row[0] if row else "")
-        if str(c0).strip().lower() == "store":
+        if str(c0).strip().lower() == str(firstheader).strip().lower():
             header_ix = r
             break
     if header_ix is None:
@@ -227,7 +225,7 @@ def _find_header_and_date_col(values2d):
     headers = [str(h).strip() for h in values2d[header_ix]]
     date_col_ix = None
     for c, h in enumerate(headers):
-        if h.lower() == "date":
+        if h.lower() == str(col).strip().lower():
             date_col_ix = c
             break
     return header_ix, date_col_ix
@@ -333,6 +331,106 @@ def _fallback_recipients(hint, *candidates):
         f"(TO_RECIPIENTS, DEFAULT_ORDER_RECIPIENTS, or per-report-key)."
     )
 
+def should_run(cfg, report_key, sub_key):
+    allowed = set(cfg.REPORT_KEY_RUN_LIST or [])
+
+    fmt_sub_key = f"{report_key}-{sub_key}"
+
+    if cfg.USE_ALL_REPORT_KEYS:
+        return True
+
+    # explicit sub-report key
+    if sub_key:
+        if sub_key in allowed:
+            return True
+        if fmt_sub_key in allowed:
+            return True
+        if report_key in allowed:
+            return True
+        return False
+
+    # no sub key
+    return report_key in allowed
+
+
+def filter_master_csv_to_ran(master_csv_bytes, cfg):
+    text = master_csv_bytes.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+
+    if not rows:
+        return master_csv_bytes  # nothing to do
+
+    headers = [h.strip() for h in rows[0]]
+    lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+
+    report_idx = lower_idx.get("report_key")
+    sub_idx = lower_idx.get("sub_report_key")
+
+    if report_idx is None:
+        raise RuntimeError("Master CSV missing Report_Key column")
+
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(headers)
+
+    for r in rows[1:]:
+        key = (r[report_idx] if report_idx < len(r) else "").strip().upper()
+        sub = None
+        if sub_idx is not None:
+            sub = (r[sub_idx] if sub_idx < len(r) else "").strip().upper() or None
+
+        if should_run(cfg, key, sub):
+            writer.writerow(r)
+
+    return output.getvalue().encode("utf-8-sig")
+
+def sort_master_csv(csv_bytes: bytes) -> bytes:
+    df = pandas.read_csv(io.BytesIO(csv_bytes))
+
+    # Normalize column names
+    cols = {c.lower(): c for c in df.columns}
+
+    report_col = cols.get("report_key")
+    sub_col = cols.get("sub_report_key")
+    cases_col = cols.get("cases to order")
+
+    if not report_col:
+        raise RuntimeError("Report_Key column not found for sorting")
+
+    # Fill missing sub-keys so they sort last
+    if sub_col:
+        df[sub_col] = df[sub_col].fillna("ZZZ")
+
+    # Ensure numeric sorting for cases
+    if cases_col:
+        df[cases_col] = pandas.to_numeric(df[cases_col], errors="coerce").fillna(0)
+
+    sort_cols = [report_col]
+    sort_ascending = [True]
+
+    if sub_col:
+        sort_cols.append(sub_col)
+        sort_ascending.append(True)
+
+    if cases_col:
+        sort_cols.append(cases_col)
+        sort_ascending.append(False)  # DESCENDING
+
+    df = df.sort_values(
+        by=sort_cols,
+        ascending=sort_ascending,
+        kind="mergesort"  # stable sort
+    )
+
+    # Restore blanks if we filled them
+    if sub_col:
+        df[sub_col] = df[sub_col].replace("ZZZ", "")
+
+    out = io.StringIO()
+    df.to_csv(out, index=False)
+    return out.getvalue().encode("utf-8-sig")
+
 
 @dataclass
 class RunResult:
@@ -352,6 +450,12 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     import time
     start = time.perf_counter()
 
+    
+    ran_report_keys = set()
+    ran_sub_report_keys = set()
+    ran_reports = {}
+
+
     if logger:
         logger.info("Authorizing with Google APIs…")
     creds = get_credentials(cfg.SCOPES, cfg.REDIRECT_PORT, cfg.FORCE_REAUTH)
@@ -365,7 +469,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Master update time: {master_update_time}")
     calc_ss_id = cfg.CALC_SPREADSHEET_ID  # default/fallback
-    user_incoming_folder_id = None
+    user_sales_folder_id = None
     try:
         me = drive_svc.about().get(fields="user(emailAddress,permissionId,displayName)").execute().get("user", {})
         user_email = (me or {}).get("emailAddress") or "UNKNOWN_USER"
@@ -383,7 +487,10 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             user_id_for_name
         )
 
-        user_incoming_folder_id = incoming_folder["id"]
+        user_level_folder_id = incoming_folder["id"]
+        user_sales_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "01 Sales Data Inputs")["id"]
+        user_vendor_folder_id = get_or_create_subfolder(drive_svc, user_level_folder_id, "02 Vendor Price Data Inputs")["id"]
+
 
         if logger:
             logger.info(
@@ -472,51 +579,83 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     # Fallback: if per-user incoming folder could not be resolved,
     # use the shared incoming folder
-    if not user_incoming_folder_id:
+    if not user_sales_folder_id:
         if logger:
             logger.warn(
                 "Per-user incoming folder not resolved; "
                 f"falling back to shared {cfg.INCOMING_FOLDER_ID}"
             )
-        user_incoming_folder_id = cfg.INCOMING_FOLDER_ID
+        user_sales_folder_id = cfg.INCOMING_FOLDER_ID
 
     # Step 1: latest incoming
     if logger:
-        logger.info(f"Finding latest incoming spreadsheet in {user_incoming_folder_id}…")
+        logger.info(f"Finding latest incoming sales spreadsheet in {user_sales_folder_id}…")
 
-    latest = None
+    latest_sales = None
     n = 10
     for attempt in range(n):
-        latest = find_latest_sheet(drive_svc, user_incoming_folder_id)
-        if latest:
+        latest_sales = find_latest_sheet(drive_svc, user_sales_folder_id)
+        if latest_sales:
             break
 
         if logger:
             logger.info(
-                f"No incoming sheet in {user_incoming_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
+                f"No incoming sheet in {user_sales_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
             )
         time.sleep(2)
 
-    if not latest:
+    if not latest_sales:
         raise SystemExit(
-            "No incoming report found in per-user incoming folder."
+            "No incoming sales report found in per-user incoming folder."
         )
     
-    new_report_id = latest["id"]
+
+    if logger:
+        logger.info(f"Finding latest incoming vendor spreadsheet in {user_vendor_folder_id}…")
+
+    latest_vendor = None
+    n = 10
+    for attempt in range(n):
+        latest_vendor = find_latest_sheet(drive_svc, user_vendor_folder_id)
+        if latest_vendor:
+            break
+
+        if logger:
+            logger.info(
+                f"No incoming sheet in {user_vendor_folder_id} yet (attempt {attempt + 1}/{n}); retrying..."
+            )
+        time.sleep(2)
+
+    if not latest_vendor:
+        raise SystemExit(
+            "No incoming vendor report found in per-user incoming folder."
+        )
+    
+    new_sales_report_id = latest_sales["id"]
+    new_vendor_report_id = latest_vendor["id"]
 
     # ---- NEW: Validate incoming weeks & plan actions (no workbook changes yet) ----
     if logger:
         logger.info("Validating incoming report (header, dates, week boundaries)…")
-    first_title, first_sid = get_first_sheet_meta(sheets_svc, new_report_id)
-    values = get_values_2d(sheets_svc, new_report_id, first_title, "A:Z")
+    sales_first_title, sales_first_sid = get_first_sheet_meta(sheets_svc, new_sales_report_id)
+    sales_values = get_values_2d(sheets_svc, new_sales_report_id, sales_first_title, "A:Z")
 
-    h_ix, d_cix = _find_header_and_date_col(values)
-    if h_ix is None or d_cix is None:
+    vendor_first_title, vendor_first_sid = get_first_sheet_meta(sheets_svc, new_vendor_report_id)
+    vendor_values = get_values_2d(sheets_svc, new_vendor_report_id, vendor_first_title, "A:Z")
+
+    sales_h_ix, sales_d_cix = _find_header_and_date_col(sales_values, 'Store', 'Date')
+    if sales_h_ix is None or sales_d_cix is None:
         raise IncomingDataValidationError(
-            "Unable to locate header ('Store' in A1) and/or 'Date' column in the incoming report."
+            "Unable to locate header ('Store' in A1) and/or 'Date' column in the incoming sales report."
+        )
+    
+    vendor_h_ix, vendor_d_cix = _find_header_and_date_col(vendor_values, 'Scan Code', 'Scan Code')
+    if vendor_h_ix is None:
+        raise IncomingDataValidationError(
+            "Unable to locate header ('Scan Code' in A1) in the incoming vendor price book report."
         )
 
-    unique_dates = _collect_unique_dates(values, h_ix, d_cix)
+    unique_dates = _collect_unique_dates(sales_values, sales_h_ix, sales_d_cix)
 
     if logger:
         logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
@@ -528,14 +667,17 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info("Preparing calculations workbook…")
 
+    # Source header & body (we already loaded 'values' from the first sheet)
+    sales_header = [str(h) for h in sales_values[sales_h_ix]]
+    sales_body_rows = sales_values[sales_h_ix + 1 :]
+
+    vendor_header = [str(h) for h in vendor_values[vendor_h_ix]]
+    vendor_body_rows = vendor_values[vendor_h_ix + 1 :]
+    
     if plan_kind == "two":
         # Two weeks → build values in memory and write each in a single call
         if logger:
             logger.info("Detected 2 weeks; writing 'Last Week' (oldest 7) and 'Current Week' (newest 7) without row deletions")
-
-        # Source header & body (we already loaded 'values' from the first sheet)
-        header = [str(h) for h in values[h_ix]]
-        body_rows = values[h_ix + 1 :]
 
         def _slice_rows(rows, date_cix, keep_dates: set):
             out = []
@@ -546,26 +688,32 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             return out
 
         keep_oldest7, keep_newest7 = plan_payload  # sets of dates from _plan_weeks
-        last_week_rows = _slice_rows(body_rows, d_cix, keep_oldest7)
-        current_week_rows = _slice_rows(body_rows, d_cix, keep_newest7)
+        last_week_rows = _slice_rows(sales_body_rows, sales_d_cix, keep_oldest7)
+        current_week_rows = _slice_rows(sales_body_rows, sales_d_cix, keep_newest7)
 
         # Create fresh target sheets
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Last Week")
         add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
 
         # Force column 'Scan Code' to be text with a prefixed apostrophe
-        last_week_rows = _force_column_as_text(header, last_week_rows, "Scan Code")
-        current_week_rows = _force_column_as_text(header, current_week_rows, "Scan Code")
+        last_week_rows = _force_column_as_text(sales_header, last_week_rows, "Scan Code")
+        current_week_rows = _force_column_as_text(sales_header, current_week_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
 
         # Bulk write (header + rows) → 1 write per sheet
-        put_values_2d(sheets_svc, calc_ss_id, "Last Week", [header] + last_week_rows)
-        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Last Week", [sales_header] + last_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
     elif plan_kind == "one" and cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK:
         # One week + rollover ON → current behavior
         if logger:
             logger.info("Detected 1 week; auto-rollover enabled → copying old Current→Last and inserting new Current")
+
         delete_sheet(sheets_svc, calc_ss_id, "Last Week")
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Vendor Price Book")
+
         try:
             copy_sheet_as(sheets_svc, calc_ss_id, "Current Week", "Last Week")
             if logger:
@@ -573,26 +721,38 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         except Exception:
             if logger:
                 logger.warn("No 'Current Week' sheet exists to copy")
-        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
+        
+        add_or_replace_sheet(sheets_svc, calc_ss_id, "Current Week")
+
+        current_week_rows = _force_column_as_text(sales_header, sales_body_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
+
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
         # Trim header for Current Week
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, sales_values, sales_h_ix)
 
     else:
         # One week + rollover OFF → Current Week only; Last Week blank
         if logger:
             logger.info("Detected 1 week; auto-rollover disabled → Current only, Last Week blank")
-        delete_sheet(sheets_svc, calc_ss_id, "Last Week")
-        delete_sheet(sheets_svc, calc_ss_id, "Current Week")
-        add_blank_sheet(sheets_svc, calc_ss_id, "Last Week")
-        copy_first_sheet_as(sheets_svc, new_report_id, calc_ss_id, "Current Week")
+        
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Last Week')
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Current Week')
+        add_or_replace_sheet(sheets_svc, calc_ss_id, 'Vendor Price Book')
+
+        current_week_rows = _force_column_as_text(sales_header, sales_body_rows, "Scan Code")
+        vendor_body_rows = _force_column_as_text(vendor_header, vendor_body_rows, "Scan Code")
+
+        put_values_2d(sheets_svc, calc_ss_id, "Current Week", [sales_header] + current_week_rows)
+        put_values_2d(sheets_svc, calc_ss_id, "Vendor Price Book", [vendor_header] + vendor_body_rows)
 
         meta = sheets_svc.spreadsheets().get(spreadsheetId=calc_ss_id).execute()
         cw_sid = next(s["properties"]["sheetId"] for s in meta["sheets"] if s["properties"]["title"] == "Current Week")
-        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, values, h_ix)
+        _trim_header_if_needed(sheets_svc, calc_ss_id, cw_sid, sales_values, sales_h_ix)
 
     # Refresh reference sheets (unchanged)
     if logger:
@@ -617,22 +777,24 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     if logger:
         logger.info(f"Location: {location}; Timestamp: {ts}")
 
-    # Step 4A: Manager Report PDF
+    # Step 4: Manager Report PDF
     if logger:
         logger.info("Exporting Manager Report (PDF)…")
-    pdf_bytes = export_sheet(creds, calc_ss_id, cfg.GID_MANAGER_PDF, "pdf")
+    pdf_bytes = export_sheet(creds, calc_ss_id, cfg.GID_MANAGER_PDF, "pdf", True)
     pdf_name = f"Manager_Report_{ts}_{location}.pdf"
     uploaded_pdf = upload_to_drive(drive_svc, pdf_bytes, pdf_name, "application/pdf", cfg.MANAGER_REPORT_FOLDER_ID, to_sheet=False)
     manager_link = uploaded_pdf.get("webViewLink")
     if logger:
         logger.info(f"Uploaded Manager PDF: {manager_link}")
 
-    # Step 4B: Master Order CSV
+    # Step 5: Master Order CSV
     if logger:
         logger.info("Exporting Master Order (CSV)…")
     master_csv_bytes = export_sheet(creds, calc_ss_id, cfg.GID_ORDER_CSV, "csv")
+    master_csv_bytes = filter_master_csv_to_ran(master_csv_bytes, cfg)
+    master_csv_bytes = sort_master_csv(master_csv_bytes)
 
-    # Step 4C: Error Report CSV, Upload, Export PDF
+    # Step 6: Error Report CSV, Upload, Export PDF
     if logger:
         logger.info("Exporting Error Report (CSV)…")
 
@@ -647,6 +809,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     else:
         headers = [h.strip() for h in rows_list[0]]
         lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+        sub_idx = lower_idx.get("sub_report_key")
 
         if "report_key" not in lower_idx:
             raise RuntimeError("Error report missing Report_Key column")
@@ -698,13 +861,16 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         err_link = err_created.get("webViewLink")
 
         err_gid = first_gid(sheets_svc, err_file_id)
-        err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf")
+        
+        autoresize_columns(sheets_svc, err_file_id, err_gid)
+
+        err_pdf = export_sheet(creds, err_file_id, err_gid, "pdf", False)
         err_pdf_name = f"Error_Report_{ts}.pdf"
 
         if logger:
             logger.info(f"Uploaded filtered Error Sheet: {err_link}")
 
-        # Step 4C.1: Send Error Report if Needed
+        # Step 6.1: Send Error Report if Needed
 
         to_err = _fallback_recipients(
             "ERROR REPORT",
@@ -723,7 +889,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         to_err = sorted(set(to_err) | set(err_cc_list))
 
 
-        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=None, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link, vendor_price_book_link=cfg.VENDOR_PRICE_BOOK_LINK)
+        email_error_report(gmail_svc=gmail_svc, sender="me", to_list=to_err, cc_list=None, ts=ts, pdf_name=err_pdf_name, pdf_bytes=err_pdf, sheet_link=err_link)
         if logger:
             logger.info("Error report email sent")
         
@@ -737,18 +903,150 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
 
 
-    # Step 4D: Full order upload (CSV) and export (PDF)
+    # Step 7: Full order upload (CSV) and export (PDF)
     full_csv_name = f"Order_Report_FULL_{location}_{ts}.csv"
     full_created = upload_to_drive(drive_svc, master_csv_bytes, full_csv_name, CSV_MIME, cfg.ORDER_REPORT_FOLDER_ID, to_sheet=True)
     full_file_id = full_created["id"]
     full_link = full_created.get('webViewLink')
     full_gid = first_gid(sheets_svc, full_file_id)
-    full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf")
+    autoresize_columns(sheets_svc, full_file_id, full_gid)
+    full_pdf = export_sheet(creds, full_file_id, full_gid, "pdf", False)
     full_pdf_name = f"Order_Report_FULL_{location}_{ts}.pdf"
     if logger:
         logger.info(f"Uploaded FULL sheet: {full_created.get('webViewLink')}")
 
-    # Step 4E: Create per-report-key outputs (CSV) and email
+
+    #Step 7.1: Large Case Alert
+    try:
+        if cfg.SOFT_CASES_ALERT_ENABLED:
+            if logger:
+                logger.info(
+                    f"Checking FULL order for case quantities > "
+                    f"{cfg.SOFT_CASES_ALERT_THRESHOLD}"
+                )
+
+            # Load FULL order CSV into DataFrame
+            df = pandas.read_csv(io.BytesIO(master_csv_bytes))
+
+            # Normalize column lookup (case-insensitive)
+            lower_cols = {c.lower(): c for c in df.columns}
+            cases_col = lower_cols.get("cases to order")
+
+            if not cases_col:
+                if logger:
+                    logger.warn(
+                        "Large case alert skipped — 'Cases to Order' "
+                        "column not found in FULL order CSV"
+                    )
+            else:
+                # Ensure numeric comparison
+                df[cases_col] = pandas.to_numeric(
+                    df[cases_col], errors="coerce"
+                ).fillna(0)
+
+                flagged = df[
+                    df[cases_col] > cfg.SOFT_CASES_ALERT_THRESHOLD
+                ]
+
+                if flagged.empty:
+                    if logger:
+                        logger.info(
+                            "No FULL order rows exceed case threshold"
+                        )
+                else:
+                    if logger:
+                        logger.warn(
+                            f"Soft alert triggered: {len(flagged)} "
+                            f"rows exceed case threshold"
+                        )
+
+                    # --------------------------------------------------
+                    # Create filtered CSV (only flagged rows)
+                    # --------------------------------------------------
+                    buf = io.StringIO()
+                    flagged.to_csv(buf, index=False)
+                    alert_csv_bytes = buf.getvalue().encode("utf-8-sig")
+
+                    alert_csv_name = (
+                        f"Large_Case_Alert_{location}_{ts}.csv"
+                    )
+
+                    # Upload alert CSV → Google Sheet
+                    created = upload_to_drive(
+                        drive_svc,
+                        alert_csv_bytes,
+                        alert_csv_name,
+                        CSV_MIME,
+                        cfg.ERROR_REPORT_FOLDER_ID,
+                        to_sheet=True,
+                    )
+
+                    alert_sheet_id = created["id"]
+                    alert_sheet_link = created.get("webViewLink")
+
+                    alert_gid = first_gid(sheets_svc, alert_sheet_id)
+                    autoresize_columns(
+                        sheets_svc,
+                        alert_sheet_id,
+                        alert_gid,
+                    )
+
+                    # Export alert PDF
+                    alert_pdf_bytes = export_sheet(
+                        creds,
+                        alert_sheet_id,
+                        alert_gid,
+                        "pdf",
+                        False,
+                    )
+                    alert_pdf_name = (
+                        f"Large_Case_Alert_{location}_{ts}.pdf"
+                    )
+
+                    # --------------------------------------------------
+                    # Resolve recipients (technical first)
+                    # --------------------------------------------------
+                    to_list = _fallback_recipients(
+                        "LARGE CASE ALERT",
+                        cfg.ERROR_RECIPIENTS,
+                        cfg.TO_RECIPIENTS,
+                        cfg.DEFAULT_ORDER_RECIPIENTS,
+                    )
+
+                    cc_list = [
+                        e for e in _clean_emails(cfg.CC_RECIPIENTS)
+                        if e not in to_list
+                    ]
+
+                    # --------------------------------------------------
+                    # Send email (SOFT ALERT)
+                    # --------------------------------------------------
+                    email_large_case_alert_report(
+                        gmail_svc=gmail_svc,
+                        sender="me",
+                        to_list=to_list,
+                        cc_list=cc_list,
+                        ts=ts,
+                        location=location,
+                        threshold=cfg.SOFT_CASES_ALERT_THRESHOLD,
+                        pdf_name=alert_pdf_name,
+                        pdf_bytes=alert_pdf_bytes,
+                        sheet_link=alert_sheet_link,
+                    )
+
+                    if logger:
+                        logger.info(
+                            "Large case quantity alert email sent"
+                        )
+
+    except Exception as e:
+        # 🔐 Soft failure only — never block pipeline
+        if logger:
+            logger.warn(
+                f"Large case quantity alert failed (soft): {e}"
+            )
+
+    # Step 8: Create per-report-key outputs (CSV) and email
 
     # --- Parse the master CSV into rows of dicts ---
     
@@ -765,6 +1063,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
     # Find required columns (case-insensitive)
     lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+    sub_idx = lower_idx.get("sub_report_key")
     
     if "report_key" not in lower_idx:
         raise RuntimeError("Report_Key column missing.")
@@ -787,12 +1086,19 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     for r in rows:
         report_key = (str(r.get(headers[report_idx]) or "").strip()) or "UNASSIGNED"
         store = (str(r.get(headers[store_idx]) or "").strip()) or "UNKNOWN"
-        groups.setdefault((store.upper(), report_key.upper()), []).append(r)
+
+        sub_key = None
+        if sub_idx is not None:
+            sub_key = (str(r.get(headers[sub_idx]) or "").strip().upper()) or None
+
+        groups.setdefault((store.upper(), report_key.upper(), sub_key), []).append(r)
     
+
+    bev_order_sent = False
     
-    for (store, key), key_rows in groups.items():
-    
-        if not cfg.USE_ALL_REPORT_KEYS and key not in (cfg.REPORT_KEY_RUN_LIST or []):
+    for (store, key, sub_key), key_rows in groups.items():
+
+        if not should_run(cfg, key, sub_key):
             continue
     
         # Build CSV text in memory
@@ -808,8 +1114,15 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
     
         tag = clean_tag(key)
         store_tag = clean_tag(store)
-    
-        csv_name = f"Order_Report_{tag}_{store_tag}_{ts}.csv"
+        sub_tag = clean_tag(sub_key)
+
+        name_parts = []
+        name_parts.append(store_tag)
+        name_parts.append(tag)
+        if sub_tag:
+            name_parts.append(sub_tag)
+
+        csv_name = f"Order_Report_{'_'.join(name_parts)}_{ts}.csv"
     
         # Upload CSV to Drive; conversion to Google Sheet happens via to_sheet=True
         created = upload_to_drive(
@@ -821,22 +1134,27 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         gid = first_gid(sheets_svc, file_id)
     
         # Export the Google Sheet as PDF
-        pdf = export_sheet(creds, file_id, gid, "pdf")
-        pdfname = f"Order_Report_{tag}_{store_tag}_{ts}.pdf"
+        autoresize_columns(sheets_svc, file_id, gid)
+        pdf = export_sheet(creds, file_id, gid, "pdf", False)
+        pdfname = f"Order_Report_{'_'.join(name_parts)}_{ts}.pdf"
     
         # Prefer Store+Key; else Key; else Store; else To; else Default
         candidates = None
-        if cfg.REPORT_KEY_RECIPIENTS:
-            store_key = (store_tag, tag)
-            key_only = (None, tag)
-            store_only = (store_tag, None)
         
-            if store_key in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[store_key]
-            elif key_only in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[key_only]
-            elif store_only in cfg.REPORT_KEY_RECIPIENTS:
-                candidates = cfg.REPORT_KEY_RECIPIENTS[store_only]
+        candidates = None
+        lookup_order = [
+            (store_tag, tag, sub_tag), #Independence, BEV, 7UP
+            (store_tag, None, sub_tag),  #Independence, 7UP
+            (None, None, sub_tag),  #7UP
+            (store_tag, tag, None),  #Independence, BEV
+            (None, tag, None),  #BEV
+            (store_tag, None, None),  #Independence
+        ]
+
+        for lk in lookup_order:
+            if lk in cfg.REPORT_KEY_RECIPIENTS:
+                candidates = cfg.REPORT_KEY_RECIPIENTS[lk]
+                break
     
         recipients = _fallback_recipients(
             f"REPORT_KEY {tag}",
@@ -844,14 +1162,23 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             cfg.TO_RECIPIENTS,
             cfg.DEFAULT_ORDER_RECIPIENTS
         )
-    
+
+        
+        email_tag_parts = [tag]
+        if sub_tag:
+            email_tag_parts.append(sub_tag)
+
+        email_tag = " - ".join(email_tag_parts)
+
+
+
         email_order_report(
             gmail_svc=gmail_svc,
             sender="me",
             to_list=recipients,
             cc_list=cfg.CC_RECIPIENTS,
             key=key,
-            tag=tag,
+            tag=email_tag,
             ts=ts,
             location=store,
             pdf_name=pdfname,
@@ -861,12 +1188,126 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             full_pdf_bytes=full_pdf,
             full_pdf_name=full_pdf_name,
         )
+
+        
+        if key.upper() == "BEV":
+            bev_order_sent = True
+
     
         if logger:
-            logger.info(f"Emailed {store} - {tag} to {recipients}")
+            logger.info(f"Emailed {store} - {email_tag} to {recipients}")
     
+    # Step 9: Unassigned Beverages Report (Soft Error)
+    try:
+        # Must have successfully sent a BEV order
+        if not bev_order_sent:
+            if logger:
+                logger.info("Skipping Unassigned Beverages Report — no BEV order was sent.")
+        else:
+            if logger:
+                logger.info("Exporting Unassigned Beverages Report (CSV)…")
+
+            unassigned_csv_bytes = export_sheet(
+                creds,
+                calc_ss_id,
+                cfg.GID_BEV_ERRORS,
+                "csv"
+            )
+
+            # Inspect CSV to ensure it actually has data
+            text = unassigned_csv_bytes.decode("utf-8-sig", errors="replace")
+            reader = csv.reader(io.StringIO(text))
+            rows = list(reader)
+
+            if not rows or len(rows) <= 1:
+                if logger:
+                    logger.info("No unassigned beverages found — report will not be sent.")
+            else:
+                headers = [h.strip() for h in rows[0]]
+                lower_idx = {h.lower(): i for i, h in enumerate(headers)}
+
+                if "report_key" not in lower_idx:
+                    raise RuntimeError("Unassigned BEV report missing Report_Key column")
+
+                if "sub_report_key" not in lower_idx:
+                    raise RuntimeError("Unassigned BEV report missing Sub_Report_Key column")
+
+                report_idx = lower_idx["report_key"]
+                sub_idx = lower_idx["sub_report_key"]
+
+                # Filter to BEV + BEV_UNASSIGNED only
+                unassigned_rows = [
+                    r for r in rows[1:]
+                    if r[report_idx].strip().upper() == "BEV"
+                    and r[sub_idx].strip().upper() == "UNASSIGNED"
+                ]
+
+                if not unassigned_rows:
+                    if logger:
+                        logger.info("No BEV_UNASSIGNED rows found — skipping email.")
+                else:
+                    # Upload filtered sheet
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    writer.writerow(rows[0])
+                    writer.writerows(unassigned_rows)
+
+                    filtered_bytes = output.getvalue().encode("utf-8-sig")
+
+                    csv_name = f"Unassigned_Beverages_Report_{ts}.csv"
+
+                    created = upload_to_drive(
+                        drive_svc,
+                        filtered_bytes,
+                        csv_name,
+                        CSV_MIME,
+                        cfg.ERROR_REPORT_FOLDER_ID,
+                        to_sheet=True
+                    )
+
+                    sheet_id = created["id"]
+                    sheet_link = created.get("webViewLink")
+                    gid = first_gid(sheets_svc, sheet_id)
+
+                    autoresize_columns(sheets_svc, sheet_id, gid)
+                    pdf_bytes = export_sheet(creds, sheet_id, gid, "pdf", False)
+                    pdf_name = f"Unassigned_Beverages_Report_{ts}.pdf"
+
+                    # Resolve recipients
+                    to_list = _fallback_recipients(
+                        "UNASSIGNED BEVERAGES REPORT",
+                        cfg.ERROR_RECIPIENTS,
+                        cfg.TO_RECIPIENTS,
+                        cfg.DEFAULT_ORDER_RECIPIENTS,
+                    )
+
+                    cc_list = list(dict.fromkeys(
+                        set(_clean_emails(cfg.TO_RECIPIENTS))
+                        | set(_clean_emails(cfg.CC_RECIPIENTS))
+                        - set(to_list)
+                    ))
+
+                    email_bev_error_report(
+                        gmail_svc=gmail_svc,
+                        sender="me",
+                        to_list=to_list,
+                        cc_list=cc_list,
+                        ts=ts,
+                        pdf_name=pdf_name,
+                        pdf_bytes=pdf_bytes,
+                        sheet_link=sheet_link,
+                        mapping_link=cfg.BEV_MAPPING_LINK,
+                    )
+
+                    if logger:
+                        logger.info("Unassigned Beverages Report email sent")
+
+    except Exception as e:
+        # Soft error — log and continue
+        if logger:
+            logger.warn(f"Unassigned Beverages Report failed (soft): {e}")
         
-    # Step 4F: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
+    # Step 10: Send Manager Report (guarded by cfg.EMAIL_MANAGER_REPORT)
     if getattr(cfg, "EMAIL_MANAGER_REPORT", True):
         to_list = _fallback_recipients("Manager Report (TO_RECIPIENTS)", cfg.TO_RECIPIENTS)
         cc_list = _clean_emails(cfg.CC_RECIPIENTS)
@@ -882,7 +1323,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
 
     
 
-    # Step 4G: Send Full Order if needed
+    # Step 11: Send Full Order if needed
     if cfg.SEND_SEPARATE_FULL_ORDER_EMAIL:
         to_full = _fallback_recipients(
             "FULL ORDER",
@@ -895,7 +1336,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
             sender="me",
             to_list=to_full,
             cc_list=cfg.CC_RECIPIENTS,
-            key='',  # or a specific key if your function requires it
+            key='', # or a specific key if your function requires it
             tag="FULL",
             ts=ts,
             location=location,
@@ -913,21 +1354,28 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         if logger:
             logger.info("Separate full order email disabled")
 
-    # Step 4H: File Cleanup
+    # Step 12: File Cleanup
 
     try:
         if logger:
             logger.info("Cleaning up used incoming file…")
-        trash_file(drive_svc, new_report_id)
+        trash_file(drive_svc, new_sales_report_id)
+        trash_file(drive_svc, new_vendor_report_id)
 
         if logger:
             logger.info("Cleaning old incoming files…")
-        cleanup_folder_by_age(
-            drive_svc,
-            user_incoming_folder_id,
-            cfg.FAILED_INPUT_TIME_TO_LIFE,
-            logger
-        )
+        for folder in [
+            user_sales_folder_id,
+            user_vendor_folder_id
+        ]:
+            cleanup_folder_by_age(
+                drive_svc,
+                folder,
+                cfg.OUTPUT_TIME_TO_LIFE,
+                logger
+            )
+        
+
 
         if logger:
             logger.info("Cleaning old output files…")
