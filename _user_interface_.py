@@ -98,6 +98,7 @@ from core_functional_modules.config import Config
 from core_functional_modules.logger import StatusLogger
 from core_functional_modules.pipeline import run_pipeline
 from core_functional_modules.drive_utils import upload_to_drive, get_or_create_subfolder
+from core_functional_modules.sheets_utils import force_named_range_timestamp
 from core_functional_modules.pipeline_bus import get_pipeline_queue
 from core_functional_modules.rebuild_google_workspace import rebuild_google_workspace
 
@@ -1526,6 +1527,16 @@ def render_sidebar(cfg):
                 help="Overwrite the PROD defaults JSON with the current DEV defaults",
             ):
                 st.session_state["confirm_push_dev_to_prod"] = True
+
+                    
+            if st.button(
+                "⏱️ Force File Renews",
+                type="secondary",
+                width="stretch",
+                help="Forces all user calculation files to be renewed the next time the user runs the pipeline",
+            ):
+                st.session_state["confirm_force_sheet_timestamp"] = True
+
             
             
             st.divider()
@@ -1645,12 +1656,12 @@ def render_sidebar(cfg):
 
                     finally:
                         st.session_state.pop("confirm_merge_dev_to_main", None)
-                        st.rerun()
+                        _rerun()
 
             with col_cancel:
                 if st.button("❌ Cancel", width="stretch"):
                     st.session_state.pop("confirm_merge_dev_to_main", None)
-                    st.rerun()
+                    _rerun()
         
         @st.dialog("⚠️ Confirm Google Workspace Rebuild")
         def confirm_rebuild_workspace():
@@ -1691,7 +1702,53 @@ def render_sidebar(cfg):
                     
                     st.session_state.confirm_rebuild_workspace = False
                     st.session_state.rebuild_requested = True
-                    st.rerun()
+                    _rerun()
+        
+        @st.dialog("⚠️ Confirm Force Sheet Timestamp")
+        def confirm_force_sheet_timestamp():
+            st.markdown(
+                """
+                **You are about to force all users to renew their calculation files.**
+
+                Proceed only if you know why you are doing this.
+                """
+            )
+
+            col_confirm, col_cancel = st.columns(2)
+
+            with col_confirm:
+                if st.button("✅ Yes — Force File Renews", type="primary", width="stretch"):
+                    try:
+                        cfg.CALC_SPREADSHEET_ID
+
+                        if not cfg.CALC_SPREADSHEET_ID:
+                            st.error("Missing TARGET_SPREADSHEET_ID in secrets.")
+                        else:
+                            creds = load_valid_token(cfg.SCOPES)
+                            if not creds:
+                                st.error("Google authentication required.")
+                            else:
+                                sheets_svc, _, _ = services(creds, cfg.HTTP_TIMEOUT_SECONDS)
+
+                                force_named_range_timestamp(
+                                    sheets_svc,
+                                    spreadsheet_id=cfg.CALC_SPREADSHEET_ID,
+                                    named_range="_update",
+                                )
+
+                                st.success("✅ Timestamp successfully refreshed.")
+
+                    except Exception as e:
+                        st.error(f"Timestamp refresh failed: {e}")
+
+                    finally:
+                        st.session_state.pop("confirm_force_sheet_timestamp", None)
+                        _rerun()
+
+            with col_cancel:
+                if st.button("❌ Cancel", width="stretch"):
+                    st.session_state.pop("confirm_force_sheet_timestamp", None)
+                    _rerun()
 
 
 
@@ -1707,6 +1764,10 @@ def render_sidebar(cfg):
         
         if st.session_state.get("confirm_rebuild_workspace"):
             confirm_rebuild_workspace()
+        
+        if st.session_state.get("confirm_force_sheet_timestamp"):
+            confirm_force_sheet_timestamp()
+
         
 
 def render_upload_different_button(cfg):

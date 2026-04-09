@@ -536,3 +536,70 @@ def autoresize_columns(sheets_svc, spreadsheet_id, sheet_id):
             }]
         }
     ).execute()
+
+def force_named_range_timestamp(svc, spreadsheet_id: str, named_range: str = "_update"):
+
+    # 1) Resolve named range -> A1 notation
+    meta = svc.spreadsheets().get(
+        spreadsheetId=spreadsheet_id,
+        includeGridData=False
+    ).execute()
+
+    named_ranges = meta.get("namedRanges", [])
+    nr = next((n for n in named_ranges if n["name"] == named_range), None)
+
+    if not nr:
+        raise ValueError(f'Named range "{named_range}" was not found')
+
+    # Convert GridRange → A1 notation
+    rng = nr["range"]
+    sheet_id = rng["sheetId"]
+
+    sheet = next(
+        s for s in meta["sheets"]
+        if s["properties"]["sheetId"] == sheet_id
+    )
+    title = sheet["properties"]["title"]
+
+    def col_letter(i: int) -> str:
+        out = ""
+        i += 1
+        while i:
+            i, r = divmod(i - 1, 26)
+            out = chr(65 + r) + out
+        return out
+
+    start_col = col_letter(rng["startColumnIndex"])
+    end_col = col_letter(rng["endColumnIndex"] - 1)
+
+    start_row = rng["startRowIndex"] + 1
+    end_row = rng["endRowIndex"]
+
+    a1 = f"'{title}'!{start_col}{start_row}:{end_col}{end_row}"
+
+    # 2) Write =NOW()
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueInputOption="USER_ENTERED",
+        body={"values": [["=NOW()"]]}
+    ).execute()
+
+    # 3) Read evaluated value back
+    res = svc.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueRenderOption="UNFORMATTED_VALUE"
+    ).execute()
+
+    values = res.get("values")
+    if not values:
+        raise RuntimeError(f'Failed to read evaluated value for "{named_range}"')
+
+    # 4) Write values-only (freeze timestamp)
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=a1,
+        valueInputOption="RAW",
+        body={"values": values}
+    ).execute()
