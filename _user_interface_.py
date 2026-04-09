@@ -129,6 +129,11 @@ UI_REBUILD_RUNNING = "REBUILD_RUNNING"
 UI_REBUILD_DONE = "REBUILD_DONE"
 
 
+STORE_LIST = ['FAV TRIP GRANDVIEW LLC', 'FAV TRIP KCMO LLC', 'FAVTRIP INDEPENDENCE', 'TRUMAN STOP']
+KEY_LIST = ['AUTO', 'BAKERY', 'BEV', 'CARTON', 'CBD', 'CHEW', 'CIGARS', 'COFFEE', 'DELI ITEM', 'DELIVERY', 'E CIGG', 'E-CIG', 'FOUNTAIN', 'GROCERY', 'HBA', 'ICE', 'KANBE', 'PK CIGG', 'PLU NOT FOUND', 'REFILL', 'SLUSH', 'SNACK/LO TAX GRO']
+BEV_SUB_KEY_LIST = ['7UP', 'COKE', 'HILAND', 'PEPSI', 'REDBULL', 'WF', 'Unassigned']
+
+
 
 class UIError(Exception):
     """
@@ -817,11 +822,26 @@ def render_run_options(cfg):
             pass
 
         with colk3:
-            report_keys = st.text_input(
-                "Keys to run (comma)",
-                value=",".join(cfg.REPORT_KEY_RUN_LIST or []),
-                help="Used when 'Use all keys' is OFF. For Sub_Report_Keys use Report_Key-Sub_Report_Key. Example: COFFEE,GROCERY,BEV-7UP"
+            options = []
+            
+            for key in KEY_LIST:
+                options.append(key)
+            
+            for sub_key in BEV_SUB_KEY_LIST:
+                options.append(sub_key)
+
+            # Remove duplicates + sort
+            options = sorted(set(options))
+
+            selected_keys = st.multiselect(
+                "Keys to run",
+                options=options,
+                default=cfg.REPORT_KEY_RUN_LIST or [],
+                help="Select one or more keys. Sub-keys shown as ReportKey-SubKey."
             )
+
+            # Convert back to your config format
+            report_keys = ",".join(selected_keys)
 
         # General Behavior
         st.markdown("##### General Behavior")
@@ -888,6 +908,20 @@ def render_run_options(cfg):
                 num_rows="dynamic",
                 width='stretch',
                 key="rk_editor",
+                column_config={
+                    "Store (optional)": st.column_config.SelectboxColumn(
+                        "Store (optional)",
+                        options=STORE_LIST
+                    ),
+                    "Report Key (optional)": st.column_config.SelectboxColumn(
+                        "Report Key (optional)",
+                        options=KEY_LIST
+                    ),
+                    "Sub-Report Key (optional)": st.column_config.SelectboxColumn(
+                        "Sub-Report Key (optional)",
+                        options=BEV_SUB_KEY_LIST
+                    ),
+                }
             )
         
             rk_map = {}
