@@ -241,6 +241,15 @@ def _collect_unique_dates(values2d, header_ix, date_cix):
             dates.append(d)
     return sorted(set(dates))
 
+def _expected_window_length(start_dow: str, end_dow: str) -> int | None:
+    if start_dow == "Any" or end_dow == "Any":
+        return None
+
+    start = _DOW_MAP[start_dow]
+    end = _DOW_MAP[end_dow]
+
+    return ((end - start) % 7) + 1
+
 def _check_week_boundaries(unique_dates, start_dow, end_dow):
     """Validate first/last weekday (unless set to Any). Return (earliest, latest)."""
     if not unique_dates:
@@ -256,18 +265,42 @@ def _check_week_boundaries(unique_dates, start_dow, end_dow):
         )
     return earliest, latest, error_text
 
-def _plan_weeks(unique_dates):
+def _plan_weeks(unique_dates, start_dow: str, end_dow: str):
     """
-    Decide if we have one or two weeks by count of unique calendar days.
-    Returns ('one', set7) or ('two', (set7_oldest, set7_newest)).
+    Decide if we have one or two reporting windows, based on configured
+    start/end weekdays rather than hard-coded 7-day weeks.
     """
-    if len(unique_dates) == 7:
+
+    window_len = _expected_window_length(start_dow, end_dow)
+    n = len(unique_dates)
+
+    # If we cannot determine window size, fall back to old behavior
+    if window_len is None:
+        if n == 7:
+            return "one", set(unique_dates)
+        if n == 14:
+            return "two", (set(unique_dates[:7]), set(unique_dates[7:]))
+        raise IncomingDataValidationError(
+            "Please only upload 1 or 2 full weeks of data."
+        )
+
+    # ✅ One reporting window
+    if n == window_len:
         return "one", set(unique_dates)
-    if len(unique_dates) == 14:
-        return "two", (set(unique_dates[:7]), set(unique_dates[7:]))
-    # Not 7 or 14
+
+    # ✅ Two reporting windows (oldest → newest)
+    if n == window_len * 2:
+        return (
+            "two",
+            (
+                set(unique_dates[:window_len]),
+                set(unique_dates[window_len:]),
+            ),
+        )
+
     raise IncomingDataValidationError(
-        "Please only upload 1 or 2 full weeks of data. The first day of week included in the report should be XXX and the last day of week included in the report should be YYY"
+        "Please only upload 1 or 2 full reporting periods "
+        "matching the configured week boundaries."
     )
 
 def _trim_header_if_needed(svc, spreadsheet_id: str, sheet_id: int, values2d, header_ix):
@@ -661,7 +694,8 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
 
     check_outputs = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
-    plan_kind, plan_payload = _plan_weeks(unique_dates)
+    plan_kind, plan_payload = _plan_weeks(unique_dates, cfg.WEEK_START_DOW, cfg.WEEK_END_DOW)
+
 
     # Step 2: prep calculations workbook (branch by plan)
     if logger:
