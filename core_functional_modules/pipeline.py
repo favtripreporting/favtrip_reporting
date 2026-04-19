@@ -694,7 +694,7 @@ def run_pipeline(cfg: Config, logger=None) -> RunResult:
         logger.info(f"Found {len(unique_dates)} unique date(s) in incoming report")
 
     check_outputs = _check_week_boundaries(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
-    plan_kind, plan_payload = _plan_weeks(unique_dates, cfg.WEEK_START_DOW, cfg.WEEK_END_DOW)
+    plan_kind, plan_payload = _plan_weeks(unique_dates, cfg.START_DAY_OF_WEEK, cfg.END_DAY_OF_WEEK)
 
 
     # Step 2: prep calculations workbook (branch by plan)
