@@ -242,13 +242,23 @@ def _collect_unique_dates(values2d, header_ix, date_cix):
     return sorted(set(dates))
 
 def _expected_window_length(start_dow: str, end_dow: str) -> int | None:
+    """
+    Return how many days constitute one reporting window based on
+    configured start and end weekdays.
+
+    Special case:
+    - Same start/end day => 8-day rolling window
+    """
     if start_dow == "Any" or end_dow == "Any":
         return None
 
-    start = _DOW_MAP[start_dow]
-    end = _DOW_MAP[end_dow]
+    s = _DOW_MAP[start_dow]
+    e = _DOW_MAP[end_dow]
 
-    return ((end - start) % 7) + 1
+    if s == e:
+        return 8
+
+    return ((e - s) % 7) + 1
 
 def _check_week_boundaries(unique_dates, start_dow, end_dow):
     """Validate first/last weekday (unless set to Any). Return (earliest, latest)."""
@@ -267,40 +277,35 @@ def _check_week_boundaries(unique_dates, start_dow, end_dow):
 
 def _plan_weeks(unique_dates, start_dow: str, end_dow: str):
     """
-    Decide if we have one or two reporting windows, based on configured
-    start/end weekdays rather than hard-coded 7-day weeks.
+    Returns:
+        kind: "one" | "two"
+        payload: (
+            set(older_dates),
+            set(newer_dates),
+        )
     """
+    if not unique_dates:
+        raise IncomingDataValidationError("No dates found in incoming report.")
 
     window_len = _expected_window_length(start_dow, end_dow)
-    n = len(unique_dates)
 
-    # If we cannot determine window size, fall back to old behavior
-    if window_len is None:
-        if n == 7:
-            return "one", set(unique_dates)
-        if n == 14:
-            return "two", (set(unique_dates[:7]), set(unique_dates[7:]))
-        raise IncomingDataValidationError(
-            "Please only upload 1 or 2 full weeks of data."
-        )
-
-    # ✅ One reporting window
-    if n == window_len:
-        return "one", set(unique_dates)
-
-    # ✅ Two reporting windows (oldest → newest)
-    if n == window_len * 2:
+    # Unbounded window → everything is "current"
+    if window_len is None or len(unique_dates) <= window_len:
         return (
-            "two",
+            "one",
             (
-                set(unique_dates[:window_len]),
-                set(unique_dates[window_len:]),
+                set(),                 # no older data
+                set(unique_dates),     # all current
             ),
         )
 
-    raise IncomingDataValidationError(
-        "Please only upload 1 or 2 full reporting periods "
-        "matching the configured week boundaries."
+    # Split: older first, newer (current window) second
+    return (
+        "two",
+        (
+            set(unique_dates[:-window_len]),
+            set(unique_dates[-window_len:]),
+        ),
     )
 
 def _trim_header_if_needed(svc, spreadsheet_id: str, sheet_id: int, values2d, header_ix):
