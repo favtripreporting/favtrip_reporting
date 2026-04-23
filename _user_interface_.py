@@ -867,17 +867,20 @@ def render_run_options(cfg):
                 value=cfg.SEND_SEPARATE_FULL_ORDER_EMAIL
             )
         with cole3:
-            email_mgr = st.toggle(
-                "Email Manager Report",
-                value=getattr(cfg, "EMAIL_MANAGER_REPORT", True),
-                help="When ON, the Manager Report email is sent. When OFF, it is skipped."
-            )
-        with cole4:
             use_rollover = st.toggle(
                     'Use auto-rollover for single week uploads',
                     value=cfg.USE_AUTO_ROLLOVER_IF_ONE_WEEK,
                     help='If this is on, when only 1 week is uploaded, the most recent previously uploaded data will become the "Last Week" data; If this is off then the "Last Week" data will be left blank'
                 )
+        with cole4:
+            # email_mgr = st.toggle(
+            #    "Email Manager Report",
+            #    value=getattr(cfg, "EMAIL_MANAGER_REPORT", True),
+            #    help="When ON, the Manager Report email is sent. When OFF, it is skipped."
+            # )
+
+            email_mgr=False
+            
 
         # Per-Report-Key Recipients
         with st.expander("Per-Report-Key Recipients (optional)", expanded=False):
@@ -1427,8 +1430,8 @@ def render_results(cfg):
             f"{result.elapsed_seconds%60:02d}"
         )
 
-        if getattr(result, "manager_pdf_link", None):
-            st.success(f"Manager PDF: {result.manager_pdf_link}")
+        #if getattr(result, "manager_pdf_link", None):
+        #    st.success(f"Manager PDF: {result.manager_pdf_link}")
         if getattr(result, "full_order_link", None):
             st.success(f"Full Order Sheet: {result.full_order_link}")
 
